@@ -5,20 +5,20 @@ FROM ubuntu:24.04
 RUN apt update -y && \                              
     apt install -y python3-pip && \                 
     apt-get clean && \                              
-    mkdir /flask && \                               
-    chmod 777 /flask                                
+    mkdir /ssh-keygen && \                               
+    chmod 777 /ssh-keygen                               
 
-# Copy application files to the /flask directory in the container
-COPY app.py /flask/                                 
-COPY requirements.txt /flask/                       
-COPY start_flask_app.sh /flask/                     
+# Copy application files to the /ssh-keygen directory in the container
+COPY app.py /ssh-keygen/                                 
+COPY requirements.txt /ssh-keygen/                       
+COPY start_app.sh /ssh-keygen/                     
 
 # Prepare the application environment
-RUN chmod +x /flask/start_flask_app.sh && \         
-    pip3 install -r /flask/requirements.txt --break-system-packages 
+RUN chmod +x /ssh-keygen/start_app.sh && \         
+    pip3 install -r /ssh-keygen/requirements.txt --break-system-packages 
 
-# Expose port 8000 for the Flask application
-EXPOSE 8000                                         
+# Expose port 8080 for the HTTP Listener
+EXPOSE 8080                                         
 
-# Set the default command to run the Flask application
-ENTRYPOINT [ "/flask/start_flask_app.sh" ]          
+# Set the default command to run the HTTP Listener
+ENTRYPOINT [ "/ssh-keygen/start_app.sh" ]          
