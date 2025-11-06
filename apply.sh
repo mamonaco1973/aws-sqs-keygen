@@ -62,7 +62,7 @@ echo "NOTE: Checking if image already exists in ECR..."
 # Query ECR for the image
 if aws ecr describe-images \
     --repository-name ssh-keygen \
-    --image-ids imageTag="keygen-worker-rc1" \
+    --image-ids imageTag="keygen-worker:rc1" \
     --region "${AWS_DEFAULT_REGION}" >/dev/null 2>&1; then
   echo "NOTE: Image already exists in ECR: ${IMAGE_TAG}"
 else
