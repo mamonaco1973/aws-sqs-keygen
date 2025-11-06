@@ -2,15 +2,14 @@
 # AWS Elastic Container Registry (ECR)
 # ------------------------------------------------------------------------------------------
 # Purpose:
-#   - Creates a dedicated Amazon ECR repository for RStudio container images
+#   - Creates a dedicated Amazon ECR repository for SSH Keygen container images
 #   - Enables vulnerability scanning and mutable image tag management
-#   - Intended for use with RStudio deployments on EKS or other container platforms
 # ==========================================================================================
 
-resource "aws_ecr_repository" "rstudio" {
+resource "aws_ecr_repository" "ssh-keygen" {
 
   # Identification -----------------------------------------------------------
-  name = "rstudio" # Repository name within the AWS account
+  name = "ssh-keygen" # Repository name within the AWS account
 
   # Image tag behavior ------------------------------------------------------
   image_tag_mutability = "MUTABLE" # Allow overwriting of existing image tags
@@ -23,6 +22,6 @@ resource "aws_ecr_repository" "rstudio" {
 
   # Tags -------------------------------------------------------------------
   tags = {
-    Name = "RStudio ECR Repository"
+    Name = "SSH Keygen ECR Repository"
   }
 }

@@ -1,19 +1,4 @@
-#!/bin/bash
-# ==============================================================================
-# Script Name: apply.sh
-# Description:
-#   Deploys a full AWS-based RStudio environment using Terraform and Docker.
-#   Phases include:
-#     1. Active Directory domain controller
-#     2. EC2 servers joined to the domain
-#     3. RStudio Docker image build and ECR push
-#     4. EKS cluster deployment and kubeconfig update
-#
-# Requirements:
-#   - AWS CLI v2, Terraform, Docker, jq installed
-#   - AWS credentials with required permissions
-#
-# ==============================================================================
+
 
 # ------------------------------------------------------------------------------
 # Global Configuration
@@ -32,13 +17,11 @@ if [ $? -ne 0 ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# Phase 1: Build Active Directory Domain Controller
+# Build SQS and ECR Resources
 # ------------------------------------------------------------------------------
-# Deploys the AD instance using Terraform. This forms the authentication base
-# and must complete before dependent components proceed.
-echo "NOTE: Building Active Directory instance..."
+echo "NOTE: Building SQS and ECR resources..."
 
-cd 01-directory || { echo "ERROR: 01-directory not found."; exit 1; }
+cd 01-sqs || { echo "ERROR: 01-sqs not found."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
@@ -46,27 +29,13 @@ terraform apply -auto-approve
 cd .. || exit
 
 # ------------------------------------------------------------------------------
-# Phase 2: Build Dependent EC2 Servers
+# Build ssh-keygen Docker Image and Push to ECR
 # ------------------------------------------------------------------------------
-# These EC2 instances are domain-joined. They depend on AD being healthy and
-# available before creation.
-echo "NOTE: Building EC2 server instances..."
-
-cd 02-servers || { echo "ERROR: 02-servers not found."; exit 1; }
-
-terraform init
-terraform apply -auto-approve
-
-cd .. || exit
-
-# ------------------------------------------------------------------------------
-# Phase 3: Build RStudio Docker Image and Push to ECR
-# ------------------------------------------------------------------------------
-# Builds the RStudio Server Docker image and pushes it to AWS ECR for later use
+# Builds the ssh-keygen Docker image and pushes it to AWS ECR for later use
 # in the EKS cluster.
-echo "NOTE: Building RStudio Docker image and pushing to ECR..."
+echo "NOTE: Building ssh-keygen Docker image and pushing to ECR..."
 
-cd 03-docker/rstudio || { echo "ERROR: rstudio directory missing."; exit 1; }
+cd 03-docker/ssh-keygen || { echo "ERROR: ssh-keygen directory missing."; exit 1; }
 
 # Retrieve AWS Account ID dynamically for ECR reference
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
@@ -82,37 +51,24 @@ docker login --username AWS --password-stdin \
   echo "ERROR: Docker authentication failed. Exiting."
   exit 1
 }
-
-# Retrieve RStudio password from Secrets Manager
-RSTUDIO_PASSWORD=$(aws secretsmanager get-secret-value \
-  --secret-id rstudio_credentials \
-  --query 'SecretString' \
-  --output text | jq -r '.password') 
-
-if [ -z "$RSTUDIO_PASSWORD" ] || [ "$RSTUDIO_PASSWORD" = "null" ]; then
-  echo "ERROR: Failed to retrieve RStudio password. Exiting."
-  exit 1
-fi
-
 # ==============================================================================
 # Build and Push RStudio Docker Image (only if missing from ECR)
 # ==============================================================================
 
-IMAGE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/rstudio:rstudio-server-rc1"
+IMAGE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/ssh-keygen:keygen-worker-rc1"
 
-echo "NOTE: Checking if image already exists in ECR..."
+echo "NOTE: Checking if image already exists in ECR..." 
 
 # Query ECR for the image
 if aws ecr describe-images \
-    --repository-name rstudio \
-    --image-ids imageTag="rstudio-server-rc1" \
+    --repository-name ssh-keygen \
+    --image-ids imageTag="keygen-worker-rc1" \
     --region "${AWS_DEFAULT_REGION}" >/dev/null 2>&1; then
   echo "NOTE: Image already exists in ECR: ${IMAGE_TAG}"
 else
   echo "WARNING: Image not found in ECR. Building and pushing..."
 
   docker build \
-    --build-arg RSTUDIO_PASSWORD="${RSTUDIO_PASSWORD}" \
     -t "${IMAGE_TAG}" . || {
       echo "ERROR: Docker build failed. Exiting."
       exit 1
@@ -129,60 +85,54 @@ fi
 cd ../.. || exit
 
 # ------------------------------------------------------------------------------
-# Phase 4: Build EKS Cluster
+# Build Apprunner instance and deploy keygen worker
 # ------------------------------------------------------------------------------
-# Deploys the EKS cluster via Terraform and updates kubeconfig for kubectl use.
-echo "NOTE: Building EKS cluster..."
+# Deploys the Apprunner instance via Terraform.
 
-cd 04-eks || { echo "ERROR: 04-eks directory missing."; exit 1; }
+echo "NOTE: Building Apprunner instance and deploying keygen worker..."
+
+cd 03-apprunner || { echo "ERROR: 03-apprunner directory missing."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
 
-# Prepare Kubernetes YAML Manifests
+cd .. || exit
 
-# Export environment variables
-export rstudio_image="${IMAGE_TAG}"
-export domain_fqdn="rstudio.mikecloud.com"
-export admin_secret="admin_ad_credentials"
-export efs_id=$(aws efs describe-file-systems \
-  --query "FileSystems[?Tags[?Key=='Name' && Value=='mcloud-efs']].FileSystemId" \
-  --output text)
+# ------------------------------------------------------------------------------
+# Build Lambdas and API gateway
+# ------------------------------------------------------------------------------
+# Deploys the Lambdas and API gateway via Terraform.
 
-#echo "EFS_ID=${efs_id}"
+echo "NOTE: Building Lambdas and API gateway..."
 
-# Render template with environment substitution
+cd 03-lambdas || { echo "ERROR: 03-lambdas directory missing."; exit 1; }
 
-envsubst < yaml/rstudio-app.yaml.tmpl > ../rstudio-app.yaml || {
-    echo "ERROR: Failed to generate Kubernetes deployment file. Exiting."
-    exit 1
-}
+terraform init
+terraform apply -auto-approve
 
 cd .. || exit
 
 # ------------------------------------------------------------------------------
-# Phase 5: Update kubeconfig and deploy rstudio yaml
-# -----------------------------------------------------------------------------
+# Build Simple Web Application around this service
+# ------------------------------------------------------------------------------
+# Deploys the Lambdas and API gateway via Terraform.
 
-# Update kubeconfig to connect kubectl to the EKS cluster
-aws eks update-kubeconfig --name rstudio-cluster \
-  --region ${AWS_DEFAULT_REGION} || {
-  echo "ERROR: kubeconfig update failed. Exiting."
-  exit 1
-}
+echo "NOTE: Building Simple Web Application..."
 
-kubectl apply -f rstudio-app.yaml || {
-  echo "ERROR: Failed to apply rstudio-app.yaml. Exiting."
-  exit 1
-}
+cd 03-webapp || { echo "ERROR: 03-webapp directory missing."; exit 1; }
+
+terraform init
+terraform apply -auto-approve
+
+cd .. || exit
 
 # ------------------------------------------------------------------------------
-# Phase 6: Build Validation
+# Build Validation
 # ------------------------------------------------------------------------------
-# Runs post-deployment checks for DNS, domain join, and instance health.
+
 echo "NOTE: Running build validation..."
 
-./validate.sh  # Uncomment once validation script is implemented
+#./validate.sh  # Uncomment once validation script is implemented
 
 # ==============================================================================
 # End of Script
