@@ -55,7 +55,7 @@ docker login --username AWS --password-stdin \
 # Build and Push RStudio Docker Image (only if missing from ECR)
 # ==============================================================================
 
-IMAGE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/ssh-keygen:keygen-worker-rc1"
+IMAGE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/ssh-keygen:keygen-worker:rc1"
 
 echo "NOTE: Checking if image already exists in ECR..." 
 

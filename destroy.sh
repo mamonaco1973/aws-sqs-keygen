@@ -16,10 +16,6 @@ terraform init
 terraform destroy -auto-approve
 cd .. || exit
 
-aws ecr delete-repository --repository-name "ssh-keygen" --force || {
-  echo "WARN: Failed to delete ECR repository. It may not exist."
-}
-
 # ------------------------------------------------------------------------------
 # Destroy Lambdas and API Gateway
 # ------------------------------------------------------------------------------
