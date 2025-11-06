@@ -35,7 +35,7 @@ cd .. || exit
 # in the EKS cluster.
 echo "NOTE: Building ssh-keygen Docker image and pushing to ECR..."
 
-cd 03-docker/ssh-keygen || { echo "ERROR: ssh-keygen directory missing."; exit 1; }
+cd 02-docker/ssh-keygen || { echo "ERROR: ssh-keygen directory missing."; exit 1; }
 
 # Retrieve AWS Account ID dynamically for ECR reference
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
