@@ -105,7 +105,7 @@ cd .. || exit
 
 echo "NOTE: Building Lambdas and API gateway..."
 
-cd 03-lambdas || { echo "ERROR: 03-lambdas directory missing."; exit 1; }
+cd 04-lambdas || { echo "ERROR: 04-lambdas directory missing."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
@@ -119,7 +119,7 @@ cd .. || exit
 
 echo "NOTE: Building Simple Web Application..."
 
-cd 03-webapp || { echo "ERROR: 03-webapp directory missing."; exit 1; }
+cd 05-webapp || { echo "ERROR: 05-webapp directory missing."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
