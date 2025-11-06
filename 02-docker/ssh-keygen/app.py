@@ -1,120 +1,153 @@
-import json
-import os
-from flask import Flask, Response, request
+#!/usr/bin/python3
+# ================================================================================================
+# app.py
+# ================================================================================================
+# Purpose:
+#   Combined microservice that:
+#     1. Runs a lightweight HTTP server on port 8080 returning "ok" for health checks.
+#     2. Runs a background SQS worker loop that processes SSH key generation requests.
+#
+# Environment Variables:
+#   REQ_QUEUE_URL   - SQS queue URL for incoming keygen requests
+#   RESP_QUEUE_URL  - SQS queue URL for outgoing responses
+#   AWS_REGION      - AWS region (e.g., us-east-1)
+#
+# Behavior:
+#   - Each request message must include "correlation_id", "key_type", and "key_bits".
+#   - The worker generates an SSH keypair, base64-encodes both, and posts a response.
+# ================================================================================================
+
 import boto3
-from boto3.dynamodb.conditions import Key
+import json
+import base64
+import os
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from cryptography.hazmat.primitives.asymmetric import rsa, ed25519
+from cryptography.hazmat.primitives import serialization
 
-# Fetching the hostname of the current machine (for debugging or health checks)
-instance_id = os.popen("hostname -I").read().strip()
 
-# Retrieving the DynamoDB table name from environment variables with a default fallback
-# TC_DYNAMO_TABLE should be set in the environment variables to specify the table name.
-dynamo_table_name = os.environ.get('TC_DYNAMO_TABLE', 'Candidates')
+# ================================================================================================
+# Configuration
+# ================================================================================================
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+REQ_QUEUE_URL = os.getenv("REQ_QUEUE_URL")
+RESP_QUEUE_URL = os.getenv("RESP_QUEUE_URL")
 
-# Initializing DynamoDB resource and table object using boto3
-# Ensure the AWS credentials and region configuration are properly set up.
-dyndb_client = boto3.resource('dynamodb', region_name='us-east-2')
-dyndb_table = dyndb_client.Table(dynamo_table_name)
+sqs = boto3.client("sqs", region_name=AWS_REGION)
 
-# Initializing Flask application
-candidates_app = Flask(__name__)
 
-# Default route to handle invalid requests
-@candidates_app.route('/', methods=['GET'])
-def default():
-    """
-    Default endpoint to return an error response for invalid requests.
-    Returns:
-        JSON: Status message with HTTP 400.
-    """
-    return {"status": "invalid request"}, 400
-
-# Health check endpoint ("go to green")
-@candidates_app.route('/gtg', methods=['GET'])
-def gtg():
-    """
-    Health check endpoint to verify the application's readiness.
-    If the "details" query parameter is provided, it returns connection details.
-    Returns:
-        JSON: Connection status and instance ID if details are requested.
-        Otherwise, an empty 200 response.
-    """
-    details = request.args.get("details")
-
-    if "details" in request.args:
-        return Response(
-            json.dumps({"connected": "true", "hostname": instance_id}),
-            status=200,
-            mimetype="application/json"
-        )
+# ================================================================================================
+# SSH Key Generation Logic
+# ================================================================================================
+def generate_keypair(key_type: str = "rsa", key_bits: int = 2048):
+    """Generate SSH keypair and return (public, private) strings."""
+    if key_type == "rsa":
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=key_bits)
+    elif key_type == "ed25519":
+        priv = ed25519.Ed25519PrivateKey.generate()
     else:
-        return Response(status=200)
+        raise ValueError(f"Unsupported key type: {key_type}")
 
-# Retrieve a candidate by name
-@candidates_app.route('/candidate/<name>', methods=['GET'])
-def get_candidate(name):
-    """
-    Retrieves information about a specific candidate from DynamoDB.
-    Args:
-        name (str): The name of the candidate to retrieve.
-    Returns:
-        JSON: Candidate details if found, or a 404 error if not found.
-    """
-    try:
-        response = dyndb_table.query(
-            KeyConditionExpression=Key('CandidateName').eq(name)
-        )
+    pub_ssh = priv.public_key().public_bytes(
+        serialization.Encoding.OpenSSH,
+        serialization.PublicFormat.OpenSSH
+    ).decode()
 
-        if len(response['Items']) == 0:
-            raise Exception  # Raise an exception if no items are found
+    priv_pem = priv.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption()
+    ).decode()
 
-        return Response(
-            json.dumps(response['Items']),
-            status=200,
-            mimetype="application/json"
-        )
-    except:
-        return "Not Found", 404
+    return pub_ssh, priv_pem
 
-# Add or update a candidate
-@candidates_app.route('/candidate/<name>', methods=['POST'])
-def post_candidate(name):
-    """
-    Adds or updates a candidate record in DynamoDB.
-    Args:
-        name (str): The name of the candidate to add or update.
-    Returns:
-        JSON: Confirmation message with candidate name if successful, or an error if failed.
-    """
-    try:
-        dyndb_table.put_item(Item={"CandidateName": name})
-    except Exception as ex:
-        return "Unable to update", 500
 
-    return Response(
-        json.dumps({"CandidateName": name}),
-        status=200,
-        mimetype="application/json"
-    )
+# ================================================================================================
+# Worker Thread: Poll SQS and Process Messages
+# ================================================================================================
+def worker_loop():
+    print("[INFO] Keygen worker started.")
+    while True:
+        try:
+            resp = sqs.receive_message(
+                QueueUrl=REQ_QUEUE_URL,
+                MaxNumberOfMessages=5,
+                WaitTimeSeconds=10,
+                VisibilityTimeout=60
+            )
 
-# Retrieve all candidates
-@candidates_app.route('/candidates', methods=['GET'])
-def get_candidates():
-    """
-    Retrieves a list of all candidates from DynamoDB.
-    Returns:
-        JSON: List of candidates if found, or a 404 error if none are found.
-    """
-    try:
-        items = dyndb_table.scan()['Items']
+            messages = resp.get("Messages", [])
+            if not messages:
+                continue
 
-        if len(items) == 0:
-            raise Exception  # Raise an exception if no items are found
+            for msg in messages:
+                body = json.loads(msg["Body"])
+                corr_id = body.get("correlation_id")
+                key_type = body.get("key_type", "rsa")
+                key_bits = body.get("key_bits", 2048)
 
-        return Response(
-            json.dumps(items),
-            status=200,
-            mimetype="application/json"
-        )
-    except:
-        return "Not Found", 404
+                print(f"[INFO] Processing request {corr_id} ({key_type}-{key_bits})")
+
+                try:
+                    pub, priv = generate_keypair(key_type, key_bits)
+                    result = {
+                        "correlation_id": corr_id,
+                        "key_type": key_type,
+                        "public_key_b64": base64.b64encode(pub.encode()).decode(),
+                        "private_key_b64": base64.b64encode(priv.encode()).decode(),
+                    }
+
+                    sqs.send_message(
+                        QueueUrl=RESP_QUEUE_URL,
+                        MessageBody=json.dumps(result)
+                    )
+
+                    sqs.delete_message(
+                        QueueUrl=REQ_QUEUE_URL,
+                        ReceiptHandle=msg["ReceiptHandle"]
+                    )
+                    print(f"[OK] Completed request {corr_id}")
+
+                except Exception as e:
+                    print(f"[ERROR] Failed request {corr_id}: {e}")
+
+        except Exception as e:
+            print(f"[ERROR] Worker loop error: {e}")
+            time.sleep(5)
+
+
+# ================================================================================================
+# HTTP Health Server (App Runner requires this)
+# ================================================================================================
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format, *args):
+        # Silence HTTP log noise
+        return
+
+
+def start_http_server():
+    server = HTTPServer(("0.0.0.0", 8080), HealthHandler)
+    print("[INFO] Health server running on port 8080.")
+    server.serve_forever()
+
+
+# ================================================================================================
+# Entry Point
+# ================================================================================================
+if __name__ == "__main__":
+    # Validate environment
+    if not REQ_QUEUE_URL or not RESP_QUEUE_URL:
+        raise SystemExit("[FATAL] Missing REQ_QUEUE_URL or RESP_QUEUE_URL environment variables.")
+
+    # Start worker in background
+    threading.Thread(target=worker_loop, daemon=True).start()
+
+    # Start health server (keeps container alive)
+    start_http_server()
