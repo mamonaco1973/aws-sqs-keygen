@@ -110,11 +110,12 @@ if [[ -z "${API_ID}" || "${API_ID}" == "None" ]]; then
   exit 1
 fi
 
-API_ENDPOINT=$(aws apigatewayv2 get-api \
+URL=$(aws apigatewayv2 get-api \
   --api-id "${API_ID}" \
   --query "ApiEndpoint" \
   --output text)
 
+export API_ENDPOINT="${URL}"
 echo "NOTE: API Gateway URL - ${API_ENDPOINT}"
 
 echo "NOTE: Building Simple Web Application..."
