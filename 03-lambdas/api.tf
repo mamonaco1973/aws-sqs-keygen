@@ -95,11 +95,11 @@ resource "aws_lambda_permission" "allow_get_invoke" {
   source_arn    = "${aws_apigatewayv2_api.keygen_api.execution_arn}/*/*"
 }
 
-# --------------------------------------------------------------------------------
-# Output: API Endpoint
-# --------------------------------------------------------------------------------
-output "keygen_api_endpoint" {
-  description = "Invoke URL for the Keygen API Gateway"
-  value       = aws_apigatewayv2_stage.keygen_stage.invoke_url
-}
+# # --------------------------------------------------------------------------------
+# # Output: API Endpoint
+# # --------------------------------------------------------------------------------
+# output "keygen_api_endpoint" {
+#   description = "Invoke URL for the Keygen API Gateway"
+#   value       = aws_apigatewayv2_stage.keygen_stage.invoke_url
+# }
 

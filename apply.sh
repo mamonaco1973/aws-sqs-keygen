@@ -101,11 +101,30 @@ cd .. || exit
 # ------------------------------------------------------------------------------
 # Build Simple Web Application around this service
 # ------------------------------------------------------------------------------
-# Deploys the Lambdas and API gateway via Terraform.
+API_ID=$(aws apigatewayv2 get-apis \
+  --query "Items[?Name=='keygen-api'].ApiId" \
+  --output text)
+
+if [[ -z "${API_ID}" || "${API_ID}" == "None" ]]; then
+  echo "ERROR: No API found with name 'keygen-api'"
+  exit 1
+fi
+
+API_ENDPOINT=$(aws apigatewayv2 get-api \
+  --api-id "${API_ID}" \
+  --query "ApiEndpoint" \
+  --output text)
+
+echo "NOTE: API Gateway URL - ${API_ENDPOINT}"
 
 echo "NOTE: Building Simple Web Application..."
 
 cd 04-webapp || { echo "ERROR: 04-webapp directory missing."; exit 1; }
+
+envsubst < index.html.tmpl > index.html || {
+    echo "ERROR: Failed to generate index.html file. Exiting."
+    exit 1
+}
 
 terraform init
 terraform apply -auto-approve
