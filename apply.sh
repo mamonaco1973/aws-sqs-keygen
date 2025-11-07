@@ -122,7 +122,7 @@ echo "NOTE: Building Simple Web Application..."
 
 cd 04-webapp || { echo "ERROR: 04-webapp directory missing."; exit 1; }
 
-envsubst '${API_BASE}' < index.template.html > index.html || {
+envsubst '${API_BASE}' < index.html.tmpl > index.html || {
     echo "ERROR: Failed to generate index.html file. Exiting."
     exit 1
 }
