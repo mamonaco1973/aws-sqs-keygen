@@ -71,7 +71,7 @@ document.getElementById("generateBtn").onclick = async () => {
     let ready = false, result;
     for (let i = 0; i < 20; i++) {
       await sleep(1500);
-      const res = await fetch(`${API_BASE}/result/$${id}`);
+      const res = await fetch(`${API_BASE}/result/${id}`);
       result = await res.json();
       if (result.status !== "pending") { ready = true; break; }
     }
