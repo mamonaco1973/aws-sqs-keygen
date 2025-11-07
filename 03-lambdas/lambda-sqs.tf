@@ -49,28 +49,29 @@ resource "aws_iam_role_policy_attachment" "lambda_sqs_execution" {
 }
 
 # --------------------------------------------------------------------------------
-# Inline Policy: Allow Lambda to send results to output queue
+# Inline Policy: Allow Lambda to write results to DynamoDB table
 # --------------------------------------------------------------------------------
 resource "aws_iam_role_policy" "lambda_send_output_policy" {
-  name = "lambda-send-output-policy"
+  name = "lambda-write-dynamo-policy"
   role = aws_iam_role.lambda_exec_role.id
 
   policy = jsonencode({
-    Version = "2012-10-17"
+    Version = "2012-10-17",
     Statement = [
       {
-        Sid    = "AllowSendToOutputQueue"
-        Effect = "Allow"
+        Sid    = "AllowWriteToDynamoDB",
+        Effect = "Allow",
         Action = [
-          "sqs:SendMessage",
-          "sqs:GetQueueUrl",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = data.aws_sqs_queue.keygen_output.arn
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:GetItem"
+        ],
+        Resource = aws_dynamodb_table.keygen_results.arn
       }
     ]
   })
 }
+
 # --------------------------------------------------------------------------------
 # Lambda Function (Container Image)
 # --------------------------------------------------------------------------------
@@ -85,7 +86,7 @@ resource "aws_lambda_function" "sqs_keygen_lambda" {
   # Inject environment variables (output queue + region)
   environment {
     variables = {      
-      RESP_QUEUE_URL = data.aws_sqs_queue.keygen_output.url
+      RESULTS_TABLE=aws_dynamodb_table.keygen_results.name
     }
   }
 
@@ -95,9 +96,8 @@ resource "aws_lambda_function" "sqs_keygen_lambda" {
   }
 
   tags = {
-    Project = "keygen-service"
-    Env     = "dev"
-  }
+        Name = "sqs-keygen-processor"
+    }
 }
 
 # --------------------------------------------------------------------------------

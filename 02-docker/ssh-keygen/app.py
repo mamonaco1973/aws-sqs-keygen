@@ -1,9 +1,9 @@
-# ================================================================================================
+# ================================================================================
 # app.py  (for Lambda container)
-# ================================================================================================
+# ================================================================================
 # Purpose:
-#   Lambda function invoked by SQS trigger to process SSH key generation requests.
-#   Each SQS message must contain:
+#   Lambda function invoked by SQS trigger to process SSH key generation
+#   requests. Each SQS message must contain:
 #       {
 #         "correlation_id": "abc123",
 #         "key_type": "rsa" | "ed25519",
@@ -11,38 +11,40 @@
 #       }
 #
 # Environment Variables:
-#   RESP_QUEUE_URL - (Optional) if set, responses are pushed to this queue.
-#   AWS_REGION     - AWS region, defaults to us-east-1
+#   RESULTS_TABLE - DynamoDB table name for storing keygen results.
+#   AWS_REGION    - AWS region, defaults to us-east-1.
 #
 # Behavior:
-#   - Generates SSH keypair per message
-#   - Base64-encodes keys
-#   - Sends result to response queue (if configured)
-#   - Logs progress to CloudWatch
-# ================================================================================================
+#   - Generates SSH keypair for each request.
+#   - Base64-encodes public and private keys.
+#   - Writes result to DynamoDB for retrieval by GET endpoint.
+#   - Logs progress to CloudWatch.
+# ================================================================================
 
 import json
 import base64
 import os
+import time
 import logging
 import boto3
 from cryptography.hazmat.primitives.asymmetric import rsa, ed25519
 from cryptography.hazmat.primitives import serialization
 
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Configuration
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-RESP_QUEUE_URL = os.getenv("RESP_QUEUE_URL")
+RESULTS_TABLE = os.getenv("RESULTS_TABLE")
 
-sqs = boto3.client("sqs", region_name=AWS_REGION)
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+table = dynamodb.Table(RESULTS_TABLE)
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
-# --------------------------------------------------------------------------------
-# SSH Key Generation Logic (extracted from App Runner microservice)
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# SSH Key Generation Logic
+# ------------------------------------------------------------------------------
 def generate_keypair(key_type: str = "rsa", key_bits: int = 2048):
     """Generate SSH keypair and return (public, private) strings."""
     if key_type == "rsa":
@@ -66,10 +68,9 @@ def generate_keypair(key_type: str = "rsa", key_bits: int = 2048):
 
     return pub_ssh, priv_pem
 
-
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Lambda Handler
-# --------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 def lambda_handler(event, context):
     """Triggered automatically by SQS."""
     for record in event.get("Records", []):
@@ -81,32 +82,34 @@ def lambda_handler(event, context):
 
             logger.info(f"Processing request {corr_id} ({key_type}-{key_bits})")
 
+            # ------------------------------------------------------------------
             # Generate SSH keypair
+            # ------------------------------------------------------------------
             pub, priv = generate_keypair(key_type, key_bits)
 
+            # ------------------------------------------------------------------
+            # Prepare result item for DynamoDB
+            # ------------------------------------------------------------------
             result = {
                 "correlation_id": corr_id,
+                "status": "complete",
                 "key_type": key_type,
                 "public_key_b64": base64.b64encode(pub.encode()).decode(),
                 "private_key_b64": base64.b64encode(priv.encode()).decode(),
+                "ttl": int(time.time()) + 86400  # expire after 1 day
             }
 
-            # Optionally send response to output queue
-            if RESP_QUEUE_URL:
-                sqs.send_message(
-                    QueueUrl=RESP_QUEUE_URL,
-                    MessageBody=json.dumps(result)
-                )
-                logger.info(f"Sent response for {corr_id} to response queue.")
-            else:
-                logger.info(f"Generated keypair (not sent): {corr_id}")
+            # ------------------------------------------------------------------
+            # Store result in DynamoDB
+            # ------------------------------------------------------------------
+            table.put_item(Item=result)
+            logger.info(f"Stored result in DynamoDB for {corr_id}")
 
         except Exception as e:
             logger.exception(f"Failed processing message: {e}")
 
     return {"statusCode": 200, "body": "Batch processed"}
 
-
-# ================================================================================================
+# ================================================================================
 # End of File
-# ================================================================================================
+# ================================================================================

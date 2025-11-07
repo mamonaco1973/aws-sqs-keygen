@@ -21,10 +21,4 @@ data "aws_sqs_queue" "keygen_input" {
   name = "keygen_input"
 }
 
-# -----------------------------------------------------------------------------------------------
-# Data Source: keygen_output queue
-# -----------------------------------------------------------------------------------------------
-data "aws_sqs_queue" "keygen_output" {
-  name = "keygen_output"
-}
 
