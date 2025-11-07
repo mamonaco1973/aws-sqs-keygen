@@ -85,27 +85,13 @@ fi
 cd ../.. || exit
 
 # ------------------------------------------------------------------------------
-# Build Apprunner instance and deploy keygen worker
-# ------------------------------------------------------------------------------
-# Deploys the Apprunner instance via Terraform.
-
-echo "NOTE: Building Apprunner instance and deploying keygen worker..."
-
-cd 03-apprunner || { echo "ERROR: 03-apprunner directory missing."; exit 1; }
-
-terraform init
-terraform apply -auto-approve
-
-cd .. || exit
-
-# ------------------------------------------------------------------------------
 # Build Lambdas and API gateway
 # ------------------------------------------------------------------------------
 # Deploys the Lambdas and API gateway via Terraform.
 
 echo "NOTE: Building Lambdas and API gateway..."
 
-cd 04-lambdas || { echo "ERROR: 04-lambdas directory missing."; exit 1; }
+cd 03-lambdas || { echo "ERROR: 03-lambdas directory missing."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
@@ -119,7 +105,7 @@ cd .. || exit
 
 echo "NOTE: Building Simple Web Application..."
 
-cd 05-webapp || { echo "ERROR: 05-webapp directory missing."; exit 1; }
+cd 04-webapp || { echo "ERROR: 04-webapp directory missing."; exit 1; }
 
 terraform init
 terraform apply -auto-approve
