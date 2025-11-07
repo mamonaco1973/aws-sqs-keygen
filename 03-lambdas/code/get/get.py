@@ -19,6 +19,7 @@ import os
 import json
 import boto3
 import logging
+import decimal
 
 # ------------------------------------------------------------------------------
 # Initialize DynamoDB client and table reference
@@ -29,6 +30,18 @@ table = dynamodb.Table(table_name)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# ------------------------------------------------------------------------------
+# Helper: Convert Decimal types to JSON-compatible values
+# ------------------------------------------------------------------------------
+def decimal_default(obj):
+    """Converts DynamoDB Decimal objects to int or float for JSON dumps."""
+    if isinstance(obj, decimal.Decimal):
+        if obj % 1 == 0:
+            return int(obj)
+        else:
+            return float(obj)
+    raise TypeError
 
 # ------------------------------------------------------------------------------
 # Lambda Handler
@@ -79,7 +92,7 @@ def lambda_handler(event, context):
         logger.info(f"Result found for {corr_id}")
         return {
             "statusCode": 200,
-            "body": json.dumps(item)
+            "body": json.dumps(item, default=decimal_default)
         }
 
     logger.info(f"No result yet for {corr_id}")

@@ -48,6 +48,7 @@ resource "aws_lambda_function" "lambda_get" {
   runtime       = "python3.11"
   handler       = "get.lambda_handler"
   filename      = data.archive_file.lambda_get_zip.output_path
+  source_code_hash = data.archive_file.lambda_get_zip.output_base64sha256
   timeout       = 15
 
   environment {
