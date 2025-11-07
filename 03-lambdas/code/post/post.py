@@ -46,8 +46,13 @@ def lambda_handler(event, context):
     #     "key_type": "rsa",
     #     "key_bits": 2048
     #   }
+    # Body can be empty.
     # --------------------------------------------------------------------------
-    body = json.loads(event["body"])
+    body_raw = event.get("body")
+    try:
+        body = json.loads(body_raw) if body_raw else {}
+    except Exception:
+        body = {}
 
     # --------------------------------------------------------------------------
     # Generate a unique correlation ID for tracking.
