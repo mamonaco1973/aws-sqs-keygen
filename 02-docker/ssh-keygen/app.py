@@ -48,7 +48,7 @@ def generate_keypair(key_type: str = "rsa", key_bits: int = 2048):
     elif key_type == "ed25519":
         priv = ed25519.Ed25519PrivateKey.generate()
     else:
-        raise ValueError(f"Unsupported key type: {key_type}")
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=key_bits)
 
     pub_ssh = priv.public_key().public_bytes(
         serialization.Encoding.OpenSSH,
