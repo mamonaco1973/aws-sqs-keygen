@@ -10,3 +10,12 @@
 provider "aws" {
   region = "us-east-1" # Primary AWS region (N. Virginia)
 }
+
+
+# ------------------------------------------------------------------------------
+# AWS Data Sources
+# ------------------------------------------------------------------------------
+# Retrieve the current AWS account ID and active region for dynamic references.
+# ------------------------------------------------------------------------------
+data "aws_caller_identity" "current" {} # Returns the AWS account ID and ARN
+data "aws_region" "current" {}          # Returns the currently configured region
