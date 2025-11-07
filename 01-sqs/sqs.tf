@@ -35,7 +35,7 @@ resource "aws_sqs_queue" "keygen_input" {
 resource "aws_sqs_queue" "keygen_output" {
   name                        = "keygen_output"
   visibility_timeout_seconds   = 60
-  message_retention_seconds    = 86400
+  message_retention_seconds    = 3600 # 1 hour retention for results
   delay_seconds                = 0
   max_message_size             = 262144
   receive_wait_time_seconds    = 10
