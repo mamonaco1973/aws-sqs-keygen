@@ -74,7 +74,7 @@ resource "aws_apigatewayv2_stage" "keygen_stage" {
 resource "aws_lambda_permission" "allow_post_invoke" {
   statement_id  = "AllowAPIGatewayInvokePost"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_post.function_name
+  function_name = aws_lambda_function.lambda_requester.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.keygen_api.execution_arn}/*/*"
 }
