@@ -1,34 +1,42 @@
-# ================================================================================================
-# API Gateway: Keygen Service (HTTP API)
-# ================================================================================================
+# ================================================================================
+# File: api.tf
+# ================================================================================
 # Purpose:
-#   Provides REST-style endpoints for key generation workflow:
-#     - POST /keygen        → Enqueue key generation request
-#     - GET  /result/{id}   → Retrieve key generation result
+#   Provides REST-style endpoints for the key generation workflow:
+#     - POST /keygen      → Enqueue key generation request
+#     - GET  /result/{id} → Retrieve key generation result
 #
 # Notes:
 #   - Uses HTTP API (v2) for simplicity and cost efficiency.
 #   - Each route integrates directly with a Lambda function.
-# ================================================================================================
+# ================================================================================
 
 # --------------------------------------------------------------------------------
-# Create HTTP API
+# RESOURCE: aws_apigatewayv2_api.keygen_api
+# --------------------------------------------------------------------------------
+# Description:
+#   Creates an HTTP API that exposes the KeyGen Lambda endpoints.
+#   CORS configuration allows client access during development.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_api" "keygen_api" {
   name          = "keygen-api"
   protocol_type = "HTTP"
-  
+
   cors_configuration {
-    allow_origins = ["*"]              # or restrict to your domain later
-    allow_methods = ["GET", "POST", "OPTIONS"]
-    allow_headers = ["content-type"]
+    allow_origins  = ["*"]              # Restrict to domain in production
+    allow_methods  = ["GET", "POST", "OPTIONS"]
+    allow_headers  = ["content-type"]
     expose_headers = ["content-type"]
-    max_age = 300
+    max_age        = 300
   }
 }
 
 # --------------------------------------------------------------------------------
-# API Integration: POST /keygen → keygen-post Lambda
+# RESOURCE: aws_apigatewayv2_integration.post_keygen_integration
+# --------------------------------------------------------------------------------
+# Description:
+#   Connects POST /keygen route to the keygen-post Lambda function.
+#   Uses AWS_PROXY integration for full event passthrough.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_integration" "post_keygen_integration" {
   api_id                 = aws_apigatewayv2_api.keygen_api.id
@@ -39,7 +47,11 @@ resource "aws_apigatewayv2_integration" "post_keygen_integration" {
 }
 
 # --------------------------------------------------------------------------------
-# API Integration: GET /result/{id} → keygen-get Lambda
+# RESOURCE: aws_apigatewayv2_integration.get_result_integration
+# --------------------------------------------------------------------------------
+# Description:
+#   Connects GET /result/{id} route to the keygen-get Lambda function.
+#   Uses AWS_PROXY integration for full event passthrough.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_integration" "get_result_integration" {
   api_id                 = aws_apigatewayv2_api.keygen_api.id
@@ -50,7 +62,10 @@ resource "aws_apigatewayv2_integration" "get_result_integration" {
 }
 
 # --------------------------------------------------------------------------------
-# Route: POST /keygen
+# RESOURCE: aws_apigatewayv2_route.post_keygen_route
+# --------------------------------------------------------------------------------
+# Description:
+#   Defines the POST /keygen route mapped to the POST integration.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_route" "post_keygen_route" {
   api_id    = aws_apigatewayv2_api.keygen_api.id
@@ -59,7 +74,10 @@ resource "aws_apigatewayv2_route" "post_keygen_route" {
 }
 
 # --------------------------------------------------------------------------------
-# Route: GET /result/{id}
+# RESOURCE: aws_apigatewayv2_route.get_result_route
+# --------------------------------------------------------------------------------
+# Description:
+#   Defines the GET /result/{id} route mapped to the GET integration.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_route" "get_result_route" {
   api_id    = aws_apigatewayv2_api.keygen_api.id
@@ -68,7 +86,10 @@ resource "aws_apigatewayv2_route" "get_result_route" {
 }
 
 # --------------------------------------------------------------------------------
-# Deployment and Stage
+# RESOURCE: aws_apigatewayv2_stage.keygen_stage
+# --------------------------------------------------------------------------------
+# Description:
+#   Creates the default stage for automatic API deployment.
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_stage" "keygen_stage" {
   api_id      = aws_apigatewayv2_api.keygen_api.id
@@ -77,7 +98,10 @@ resource "aws_apigatewayv2_stage" "keygen_stage" {
 }
 
 # --------------------------------------------------------------------------------
-# Lambda Permissions: Allow API Gateway to invoke both Lambdas
+# RESOURCE: aws_lambda_permission.allow_post_invoke
+# --------------------------------------------------------------------------------
+# Description:
+#   Grants API Gateway permission to invoke the keygen-post Lambda.
 # --------------------------------------------------------------------------------
 resource "aws_lambda_permission" "allow_post_invoke" {
   statement_id  = "AllowAPIGatewayInvokePost"
@@ -87,6 +111,12 @@ resource "aws_lambda_permission" "allow_post_invoke" {
   source_arn    = "${aws_apigatewayv2_api.keygen_api.execution_arn}/*/*"
 }
 
+# --------------------------------------------------------------------------------
+# RESOURCE: aws_lambda_permission.allow_get_invoke
+# --------------------------------------------------------------------------------
+# Description:
+#   Grants API Gateway permission to invoke the keygen-get Lambda.
+# --------------------------------------------------------------------------------
 resource "aws_lambda_permission" "allow_get_invoke" {
   statement_id  = "AllowAPIGatewayInvokeGet"
   action        = "lambda:InvokeFunction"
@@ -95,11 +125,10 @@ resource "aws_lambda_permission" "allow_get_invoke" {
   source_arn    = "${aws_apigatewayv2_api.keygen_api.execution_arn}/*/*"
 }
 
-# # --------------------------------------------------------------------------------
-# # Output: API Endpoint
-# # --------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------
+# OUTPUT: keygen_api_endpoint (optional)
+# --------------------------------------------------------------------------------
 # output "keygen_api_endpoint" {
 #   description = "Invoke URL for the Keygen API Gateway"
 #   value       = aws_apigatewayv2_stage.keygen_stage.invoke_url
 # }
-

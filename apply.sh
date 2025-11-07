@@ -1,14 +1,33 @@
+# ================================================================================
+# File: apply.sh
+# ================================================================================
+# Purpose:
+#   Automates full deployment of the KeyGen service, including SQS, ECR,
+#   Lambda, API Gateway, and static web components. Each step validates
+#   its environment and applies Terraform modules in order.
+#
+# Notes:
+#   - Requires AWS CLI, Terraform, and Docker to be installed.
+#   - Assumes valid AWS credentials and permissions are configured.
+# ================================================================================
 
+# --------------------------------------------------------------------------------
+# GLOBAL CONFIGURATION
+# --------------------------------------------------------------------------------
+# Sets the AWS region and enforces strict Bash error handling:
+#   -e : Exit immediately on command failure
+#   -u : Treat unset variables as errors
+#   -o pipefail : Catch errors in piped commands
+# --------------------------------------------------------------------------------
+export AWS_DEFAULT_REGION="us-east-1"
+set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# Global Configuration
-# ------------------------------------------------------------------------------
-export AWS_DEFAULT_REGION="us-east-1"  # Default AWS region for deployment
-set -euo pipefail                      # Exit on error, unset var, or pipe fail
-
-# ------------------------------------------------------------------------------
-# Environment Pre-Check
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------
+# ENVIRONMENT PRE-CHECK
+# --------------------------------------------------------------------------------
+# Ensures that required tools, variables, and credentials exist before
+# proceeding with resource deployment.
+# --------------------------------------------------------------------------------
 echo "NOTE: Running environment validation..."
 ./check_env.sh
 if [ $? -ne 0 ]; then
@@ -16,9 +35,12 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# ------------------------------------------------------------------------------
-# Build SQS and ECR Resources
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------
+# BUILD SQS AND ECR RESOURCES
+# --------------------------------------------------------------------------------
+# Initializes and applies the Terraform configuration that creates
+# SQS queues and ECR repositories required for the KeyGen workflow.
+# --------------------------------------------------------------------------------
 echo "NOTE: Building SQS and ECR resources..."
 
 cd 01-sqs || { echo "ERROR: 01-sqs not found."; exit 1; }
@@ -28,16 +50,20 @@ terraform apply -auto-approve
 
 cd .. || exit
 
-# ------------------------------------------------------------------------------
-# Build ssh-keygen Docker Image and Push to ECR
-# ------------------------------------------------------------------------------
-# Builds the ssh-keygen Docker image and pushes it to AWS ECR for later use
-# in the EKS cluster.
+# --------------------------------------------------------------------------------
+# BUILD SSH-KEYGEN DOCKER IMAGE AND PUSH TO ECR
+# --------------------------------------------------------------------------------
+# Builds the ssh-keygen container image and uploads it to Amazon ECR.
+# Used later by the Lambda or ECS processor components.
+# --------------------------------------------------------------------------------
 echo "NOTE: Building ssh-keygen Docker image and pushing to ECR..."
 
-cd 02-docker/ssh-keygen || { echo "ERROR: ssh-keygen directory missing."; exit 1; }
+cd 02-docker/ssh-keygen || {
+  echo "ERROR: ssh-keygen directory missing."
+  exit 1
+}
 
-# Retrieve AWS Account ID dynamically for ECR reference
+# Retrieve AWS account ID for ECR references
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
 if [ -z "$AWS_ACCOUNT_ID" ]; then
   echo "ERROR: Failed to retrieve AWS Account ID. Exiting."
@@ -51,13 +77,16 @@ docker login --username AWS --password-stdin \
   echo "ERROR: Docker authentication failed. Exiting."
   exit 1
 }
-# ==============================================================================
-# Build and Push RStudio Docker Image (only if missing from ECR)
-# ==============================================================================
 
+# ================================================================================
+# BUILD AND PUSH RSTUDIO DOCKER IMAGE (IF MISSING FROM ECR)
+# ================================================================================
+# Verifies whether the required image exists in ECR and builds/pushes it
+# only if not found. Prevents redundant uploads.
+# ================================================================================
 IMAGE_TAG="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/ssh-keygen:keygen-worker-rc1"
 
-echo "NOTE: Checking if image already exists in ECR..." 
+echo "NOTE: Checking if image already exists in ECR..."
 
 # Query ECR for the image
 if aws ecr describe-images \
@@ -68,11 +97,10 @@ if aws ecr describe-images \
 else
   echo "WARNING: Image not found in ECR. Building and pushing..."
 
-  docker build \
-    -t "${IMAGE_TAG}" . || {
-      echo "ERROR: Docker build failed. Exiting."
-      exit 1
-    }
+  docker build -t "${IMAGE_TAG}" . || {
+    echo "ERROR: Docker build failed. Exiting."
+    exit 1
+  }
 
   docker push "${IMAGE_TAG}" || {
     echo "ERROR: Docker push failed. Exiting."
@@ -84,11 +112,11 @@ fi
 
 cd ../.. || exit
 
-# ------------------------------------------------------------------------------
-# Build Lambdas and API gateway
-# ------------------------------------------------------------------------------
-# Deploys the Lambdas and API gateway via Terraform.
-
+# --------------------------------------------------------------------------------
+# BUILD LAMBDAS AND API GATEWAY
+# --------------------------------------------------------------------------------
+# Deploys the Lambda functions and API Gateway endpoints via Terraform.
+# --------------------------------------------------------------------------------
 echo "NOTE: Building Lambdas and API gateway..."
 
 cd 03-lambdas || { echo "ERROR: 03-lambdas directory missing."; exit 1; }
@@ -98,9 +126,12 @@ terraform apply -auto-approve
 
 cd .. || exit
 
-# ------------------------------------------------------------------------------
-# Build Simple Web Application around this service
-# ------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------
+# BUILD SIMPLE WEB APPLICATION
+# --------------------------------------------------------------------------------
+# Creates a static web client that communicates with the deployed API
+# Gateway. Substitutes the API URL into the HTML template.
+# --------------------------------------------------------------------------------
 API_ID=$(aws apigatewayv2 get-apis \
   --query "Items[?Name=='keygen-api'].ApiId" \
   --output text)
@@ -123,8 +154,8 @@ echo "NOTE: Building Simple Web Application..."
 cd 04-webapp || { echo "ERROR: 04-webapp directory missing."; exit 1; }
 
 envsubst '${API_BASE}' < index.html.tmpl > index.html || {
-    echo "ERROR: Failed to generate index.html file. Exiting."
-    exit 1
+  echo "ERROR: Failed to generate index.html file. Exiting."
+  exit 1
 }
 
 terraform init
@@ -132,14 +163,14 @@ terraform apply -auto-approve
 
 cd .. || exit
 
-# ------------------------------------------------------------------------------
-# Build Validation
-# ------------------------------------------------------------------------------
-
+# --------------------------------------------------------------------------------
+# BUILD VALIDATION
+# --------------------------------------------------------------------------------
+# Optionally runs post-deployment validation once implemented.
+# --------------------------------------------------------------------------------
 echo "NOTE: Running build validation..."
+# ./validate.sh  # Uncomment once validation script is implemented
 
-#./validate.sh  # Uncomment once validation script is implemented
-
-# ==============================================================================
-# End of Script
-# ==============================================================================
+# ================================================================================
+# END OF SCRIPT
+# ================================================================================
