@@ -94,3 +94,19 @@ output "keygen_api_endpoint" {
   description = "Invoke URL for the Keygen API Gateway"
   value       = aws_apigatewayv2_stage.keygen_stage.invoke_url
 }
+
+# --------------------------------------------------------------------------------
+# Create HTTP API with CORS configuration
+# --------------------------------------------------------------------------------
+resource "aws_apigatewayv2_api" "keygen_api" {
+  name          = "keygen-api"
+  protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins = ["*"]              # or restrict to your domain later
+    allow_methods = ["GET", "POST", "OPTIONS"]
+    allow_headers = ["content-type"]
+    expose_headers = ["content-type"]
+    max_age = 300
+  }
+}
