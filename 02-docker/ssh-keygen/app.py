@@ -78,7 +78,11 @@ def lambda_handler(event, context):
             body = json.loads(record["body"])
             corr_id = body.get("correlation_id", "unknown")
             key_type = body.get("key_type", "rsa")
-            key_bits = int(body.get("key_bits", 2048))
+            key_bits = body.get("key_bits")
+            if not key_bits:
+                key_bits = 2048
+            else:
+                key_bits = int(key_bits)
 
             logger.info(f"Processing request {corr_id} ({key_type}-{key_bits})")
 
