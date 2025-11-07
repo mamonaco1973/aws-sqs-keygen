@@ -84,8 +84,7 @@ resource "aws_lambda_function" "sqs_keygen_lambda" {
 
   # Inject environment variables (output queue + region)
   environment {
-    variables = {
-      AWS_REGION     = "us-east-1"
+    variables = {      
       RESP_QUEUE_URL = data.aws_sqs_queue.keygen_output.url
     }
   }
