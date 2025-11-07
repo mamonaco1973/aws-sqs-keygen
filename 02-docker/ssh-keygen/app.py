@@ -60,9 +60,14 @@ def generate_keypair(key_type: str = "rsa", key_bits: int = 2048):
         serialization.PublicFormat.OpenSSH
     ).decode()
 
+    if key_type == "ed25519":
+        priv_format = serialization.PrivateFormat.PKCS8
+    else:
+        priv_format = serialization.PrivateFormat.TraditionalOpenSSL
+
     priv_pem = priv.private_bytes(
         serialization.Encoding.PEM,
-        serialization.PrivateFormat.TraditionalOpenSSL,
+        priv_format,
         serialization.NoEncryption()
     ).decode()
 
