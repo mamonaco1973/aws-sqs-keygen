@@ -64,7 +64,7 @@ resource "aws_apigatewayv2_route" "get_result_route" {
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_stage" "keygen_stage" {
   api_id      = aws_apigatewayv2_api.keygen_api.id
-  name        = "dev"
+  name        = "$default"
   auto_deploy = true
 }
 
