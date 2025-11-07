@@ -28,12 +28,12 @@ resource "aws_apigatewayv2_api" "keygen_api" {
 }
 
 # --------------------------------------------------------------------------------
-# API Integration: POST /keygen → keygen-requester Lambda
+# API Integration: POST /keygen → keygen-post Lambda
 # --------------------------------------------------------------------------------
 resource "aws_apigatewayv2_integration" "post_keygen_integration" {
   api_id                 = aws_apigatewayv2_api.keygen_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.lambda_requester.invoke_arn
+  integration_uri        = aws_lambda_function.lambda_post.invoke_arn
   integration_method     = "POST"
   payload_format_version = "2.0"
 }
@@ -82,7 +82,7 @@ resource "aws_apigatewayv2_stage" "keygen_stage" {
 resource "aws_lambda_permission" "allow_post_invoke" {
   statement_id  = "AllowAPIGatewayInvokePost"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_requester.function_name
+  function_name = aws_lambda_function.lambda_post.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.keygen_api.execution_arn}/*/*"
 }
