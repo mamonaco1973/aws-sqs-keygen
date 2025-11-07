@@ -37,7 +37,7 @@ resource "aws_apigatewayv2_integration" "get_result_integration" {
   api_id                 = aws_apigatewayv2_api.keygen_api.id
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.lambda_get.invoke_arn
-  integration_method     = "GET"
+  integration_method     = "POST"
   payload_format_version = "2.0"
 }
 
