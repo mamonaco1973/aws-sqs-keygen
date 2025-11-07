@@ -47,8 +47,8 @@ resource "aws_lambda_function" "lambda_get" {
   role          = aws_iam_role.lambda_get_role.arn
   runtime       = "python3.11"
   handler       = "get.lambda_handler"
-  filename      = data.archive_file.lambda_get_zip.output_path
-  source_code_hash = data.archive_file.lambda_get_zip.output_base64sha256
+  filename      = data.archive_file.lambdas_zip.output_path
+  source_code_hash = data.archive_file.lambdas_zip.output_base64sha256
   timeout       = 15
 
   environment {
@@ -61,8 +61,8 @@ resource "aws_lambda_function" "lambda_get" {
 # --------------------------------------------------------------------------------
 # Archive Lambda Code (ZIP packaging)
 # --------------------------------------------------------------------------------
-data "archive_file" "lambda_get_zip" {
+data "archive_file" "lambdas_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/code/get"
-  output_path = "${path.module}/code/get.zip"
+  source_dir  = "${path.module}/code"
+  output_path = "${path.module}/lambdas.zip"
 }

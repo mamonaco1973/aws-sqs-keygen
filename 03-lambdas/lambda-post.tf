@@ -38,8 +38,8 @@ resource "aws_lambda_function" "lambda_requester" {
   role          = aws_iam_role.lambda_requester_role.arn
   runtime       = "python3.11"
   handler       = "post.lambda_handler"
-  filename      = data.archive_file.requester_zip.output_path
-  source_code_hash = data.archive_file.requester_zip.output_base64sha256
+  filename      = data.archive_file.lambdas_zip.output_path
+  source_code_hash = data.archive_file.lambdas_zip.output_base64sha256
   timeout       = 15
 
   environment {
@@ -47,10 +47,4 @@ resource "aws_lambda_function" "lambda_requester" {
       REQ_QUEUE_URL = data.aws_sqs_queue.keygen_input.url
     }
   }
-}
-
-data "archive_file" "requester_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/code/post"
-  output_path = "${path.module}/code/post.zip"
 }
