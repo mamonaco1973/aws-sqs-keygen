@@ -1,6 +1,4 @@
 # ================================================================================
-# app.py
-# ================================================================================
 # Purpose:
 #   Lambda function for the POST /keygen endpoint. Accepts key generation
 #   requests from API Gateway, generates a unique correlation ID, and sends
