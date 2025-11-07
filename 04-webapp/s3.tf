@@ -63,9 +63,14 @@ resource "aws_s3_object" "index_html" {
 }
 
 # --------------------------------------------------------------------------------
-# Output: Website URL
+# Output: Website HTTPS URL
 # --------------------------------------------------------------------------------
-output "website_url" {
-  description = "Public S3 website endpoint"
-  value       = aws_s3_bucket_website_configuration.website.website_endpoint
+output "website_https_url" {
+  description = "Direct HTTPS URL for index.html in S3"
+  value       = "https://${aws_s3_bucket.web_bucket.bucket}.s3.${data.aws_region.current.name}.amazonaws.com/index.html"
 }
+
+# --------------------------------------------------------------------------------
+# Get current region for dynamic URL construction
+# --------------------------------------------------------------------------------
+data "aws_region" "current" {}

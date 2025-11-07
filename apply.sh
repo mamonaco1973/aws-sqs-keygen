@@ -115,8 +115,8 @@ URL=$(aws apigatewayv2 get-api \
   --query "ApiEndpoint" \
   --output text)
 
-export API_ENDPOINT="${URL}"
-echo "NOTE: API Gateway URL - ${API_ENDPOINT}"
+export API_BASE="${URL}"
+echo "NOTE: API Gateway URL - ${API_BASE}"
 
 echo "NOTE: Building Simple Web Application..."
 
