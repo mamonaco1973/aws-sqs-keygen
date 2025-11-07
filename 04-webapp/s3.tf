@@ -67,7 +67,7 @@ resource "aws_s3_object" "index_html" {
 # --------------------------------------------------------------------------------
 output "website_https_url" {
   description = "Direct HTTPS URL for index.html in S3"
-  value       = "https://${aws_s3_bucket.web_bucket.bucket}.s3.${data.aws_region.current.name}.amazonaws.com/index.html"
+  value       = "https://${aws_s3_bucket.web_bucket.bucket}.s3.${data.aws_region.current.id}.amazonaws.com/index.html"
 }
 
 # --------------------------------------------------------------------------------
