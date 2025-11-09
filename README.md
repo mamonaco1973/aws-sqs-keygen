@@ -39,7 +39,7 @@ workflows, sandbox environments, or short-lived development accounts.
 
 ![AWS KeyGen Diagram](aws-sqs-keygen.png)
 
-## Architecture Flow
+## SQS Service Flow
 
 ```mermaid
 flowchart TD
