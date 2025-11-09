@@ -78,7 +78,7 @@ for ((i=1; i<=MAX_ATTEMPTS; i++)); do
 
   if [[ "$STATUS" == "complete" ]]; then
     echo "NOTE: Key generation complete."
-    echo "$RESULT" | jq
+    #echo "$RESULT" | jq
     exit 0
   fi
 
