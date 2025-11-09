@@ -9,7 +9,7 @@ a **message-driven key generation pipeline** that asynchronously processes SSH
 keypair requests and stores completed results in DynamoDB — all without managing
 any EC2 instances.
 
-A simple HTML frontend lets users trigger key generation requests directly from a browser using the deployed API endpoints.
+For testing this service, a simple HTML frontend lets users trigger key generation requests directly from a browser using the deployed API endpoints.
 
 ![webapp](webapp.png)
 
@@ -68,7 +68,7 @@ The request is placed on the SQS queue and processed asynchronously by the Lambd
 
 **Example Request:**
 ```bash
-curl -X POST https://<api-id>.execute-api.<region>.amazonaws.com/keygen   -H "Content-Type: application/json"   -d '{"key_type": "rsa", "key_bits": 2048}'
+curl -X POST https://<api-id>.execute-api.us-east-1.amazonaws.com/keygen   -H "Content-Type: application/json"   -d '{"key_type": "rsa", "key_bits": 2048}'
 ```
 
 **Example Response:**
@@ -96,7 +96,7 @@ Retrieves the result of a previously submitted SSH key generation request.
 
 **Example Request:**
 ```bash
-curl https://<api-id>.execute-api.<region>.amazonaws.com/result/630f70c4-815c-41d1-ae52-6babf3a41b1f
+curl https://<api-id>.execute-api.us-east-1.amazonaws.com/result/630f70c4-815c-41d1-ae52-6babf3a41b1f
 ```
 
 **Example Response (Pending):**
