@@ -74,10 +74,9 @@ SLEEP_SECONDS=2
 
 for ((i=1; i<=MAX_ATTEMPTS; i++)); do
   RESULT=$(curl -s "${API_BASE}/result/${REQUEST_ID}")
-  echo $RESULT
   STATUS=$(echo "$RESULT" | jq -r '.status // empty')
 
-  if [[ "$STATUS" == "completed" ]]; then
+  if [[ "$STATUS" == "complete" ]]; then
     echo "SUCCESS: Key generation complete."
     echo "$RESULT" | jq
     exit 0

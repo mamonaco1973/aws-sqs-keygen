@@ -92,11 +92,11 @@ curl https://<api-id>.execute-api.<region>.amazonaws.com/result/630f70c4-815c-41
 ```json
 {
   "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
-  "status": "completed",
+  "status": "complete",
   "key_type": "rsa",
   "key_bits": 2048,
-  "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0t...",
-  "private_key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQo..."
+  "public_key_b64": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0t...",
+  "private_key_b64": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQo..."
 }
 ```
 
@@ -105,7 +105,7 @@ curl https://<api-id>.execute-api.<region>.amazonaws.com/result/630f70c4-815c-41
 |---------|--------------|
 | `submitted` | Request accepted and queued for processing. |
 | `pending` | Request is being processed by the Lambda worker. |
-| `completed` | Key generation successful; keypair included in response. |
+| `complete` | Key generation successful; keypair included in response. |
 | `error` | Request failed; additional error message provided. |
 
 ---
