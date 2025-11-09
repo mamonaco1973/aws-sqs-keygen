@@ -39,22 +39,6 @@ workflows, sandbox environments, or short-lived development accounts.
 
 ![AWS KeyGen Diagram](aws-sqs-keygen.png)
 
-## SQS Service Flow
-
-```mermaid
-flowchart TD
-    A["User or Web Client"] -->|"HTTPS POST /request"| B["API Gateway"]
-    B -->|"Invoke submit Lambda"| C["Lambda Submit Request"]
-    C -->|"Enqueue message"| D["SQS Request Queue"]
-    D -->|"Trigger processor"| E["Lambda KeyGen Processor"]
-    E -->|"Generate SSH keypair"| F["DynamoDB Results Table"]
-
-    A -->|"HTTPS GET /result/{request_id}"| G["API Gateway"]
-    G -->|"Invoke fetch Lambda"| H["Lambda Fetch Result"]
-    H -->|"Read by request_id"| F
-    H -->|"Return JSON response"| A
-```
-
 ## API Gateway Endpoints
 
 The **KeyGen API** exposes two HTTP endpoints through **Amazon API Gateway (HTTP API)**, providing
@@ -150,6 +134,21 @@ curl https://<api-id>.execute-api.<region>.amazonaws.com/result/630f70c4-815c-41
 - Keys are base64-encoded to ensure transport safety and can be decoded to PEM format for local use.  
 - No state is persisted beyond queue message lifetime, ensuring security and cost efficiency.
 
+### Architecture Flow
+
+```mermaid
+flowchart TD
+    A["User or Web Client"] -->|"HTTPS POST /request"| B["API Gateway"]
+    B -->|"Invoke submit Lambda"| C["Lambda Submit Request"]
+    C -->|"Enqueue message"| D["SQS Request Queue"]
+    D -->|"Trigger processor"| E["Lambda KeyGen Processor"]
+    E -->|"Generate SSH keypair"| F["DynamoDB Results Table"]
+
+    A -->|"HTTPS GET /result/{request_id}"| G["API Gateway"]
+    G -->|"Invoke fetch Lambda"| H["Lambda Fetch Result"]
+    H -->|"Read by request_id"| F
+    H -->|"Return JSON response"| A
+```
 
 ## Prerequisites
 
