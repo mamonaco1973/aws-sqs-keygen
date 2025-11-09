@@ -39,44 +39,21 @@ workflows, sandbox environments, or short-lived development accounts.
 
 ![AWS KeyGen Diagram](aws-sqs-keygen.png)
 
-### Architecture Flow
+## Architecture Flow
 
 ```mermaid
 flowchart TD
-    %% ============================================================================================
-    %% AWS SSH KeyGen Microservice - High-Level Flow (Strict GitHub-Compatible)
-    %% ============================================================================================
+    A["User or Web Client"] -->|"HTTPS POST /request"| B["API Gateway"]
+    B -->|"Invoke submit Lambda"| C["Lambda Submit Request"]
+    C -->|"Enqueue message"| D["SQS Request Queue"]
+    D -->|"Trigger processor"| E["Lambda KeyGen Processor"]
+    E -->|"Generate SSH keypair"| F["DynamoDB Results Table"]
 
-    %% CLIENT LAYER
-    A["User or Web Client"] -->|"HTTPS POST to /request"| B["API Gateway"]
-
-    %% REQUEST SUBMISSION
-    B -->|"Invoke Lambda Submit Request"| C["Lambda Submit Request"]
-    C -->|"Enqueue Message"| D["SQS Request Queue"]
-
-    %% PROCESSING LAYER
-    D -->|"Trigger Event"| E["Lambda KeyGen Processor"]
-    E -->|"Generate SSH Keypair RSA or Ed25519"| E2["In-memory Key Generation"]
-    E2 -->|"Store Result Record"| F["DynamoDB Table"]
-
-    %% RESULT RETRIEVAL
-    A -->|"HTTPS GET to /result request_id"| G["API Gateway"]
-    G -->|"Query Result"| H["Lambda Fetch Result"]
-    H -->|"Read from DynamoDB"| F
-    H -->|"Return JSON Response"| A
-
-    %% ANNOTATIONS
-    subgraph Notes["Key Points"]
-      note1["• Requests are queued in SQS for async processing"]
-      note2["• Lambda workers are stateless and scale automatically"]
-      note3["• Results stored in DynamoDB with TTL for cleanup"]
-    end
-
-    %% STYLING
-    classDef aws fill:#232F3E,stroke:#FF9900,stroke-width:2px,color:#ffffff
-    class B,C,D,E,E2,F,G,H aws
+    A -->|"HTTPS GET /result/{request_id}"| G["API Gateway"]
+    G -->|"Invoke fetch Lambda"| H["Lambda Fetch Result"]
+    H -->|"Read by request_id"| F
+    H -->|"Return JSON response"| A
 ```
-
 
 ## API Gateway Endpoints
 
