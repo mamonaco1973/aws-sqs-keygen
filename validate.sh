@@ -1,107 +1,96 @@
 #!/bin/bash
-# ==============================================================================
-# Wait for RStudio Ingress Load Balancer to Become Reachable
-# ------------------------------------------------------------------------------
+# ================================================================================================
+# File: validate.sh
+# ================================================================================================
 # Purpose:
-#   This script verifies that the RStudio Ingress resource in Kubernetes
-#   successfully receives an AWS Load Balancer endpoint and that the endpoint
-#   responds with HTTP 200 (OK).
+#   End-to-end validation for the KeyGen microservice.
+#   - Discovers the deployed API Gateway endpoint automatically via AWS CLI.
+#   - Submits a key generation request to the Lambda-based API.
+#   - Parses the returned request_id.
+#   - Polls the result endpoint until the generated SSH keypair is ready.
 #
-# Overview:
-#   1. Retrieve DNS names of Windows and Linux AD instances for reference.
-#   2. Wait for the RStudio Ingress to receive a Load Balancer hostname.
-#   3. Poll the Load Balancer endpoint until it returns HTTP 200.
-#
-# Notes:
-#   - Designed for use in AWS EKS environments.
-#   - Exits with nonzero status if either step times out.
-# ==============================================================================
+# Requirements:
+#   - curl, jq, and AWS CLI installed and authenticated.
+#   - Terraform deployment of 'keygen-api' completed successfully.
+#   - Optional env vars:
+#       KEY_TYPE = rsa | ed25519            (default: rsa)
+#       KEY_BITS = 2048 | 4096 (RSA only)   (default: 2048)
+# ================================================================================================
+set -euo pipefail
+export AWS_DEFAULT_REGION="us-east-1"
 
-NAMESPACE="default"
-INGRESS_NAME="rstudio-ingress"
-MAX_ATTEMPTS=30
-SLEEP_SECONDS=10
-AWS_DEFAULT_REGION="us-east-1"
+# -----------------------------------------------------------------------------------------------
+# Step 1: Discover API Gateway endpoint
+# -----------------------------------------------------------------------------------------------
+echo "NOTE: Locating API Gateway endpoint..."
 
-# ------------------------------------------------------------------------------
-# Step 0: Lookup Active Directory Instances
-# ------------------------------------------------------------------------------
-
-# --- Windows AD Instance ------------------------------------------------------
-# Retrieve the public DNS name of the Windows AD administrator EC2 instance.
-windows_dns=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=windows-ad-admin" \
-  --query 'Reservations[].Instances[].PublicDnsName' \
+API_ID=$(aws apigatewayv2 get-apis \
+  --query "Items[?Name=='keygen-api'].ApiId" \
   --output text)
 
-if [ -z "$windows_dns" ]; then
-  echo "WARNING: No Windows AD instance found with tag Name=windows-ad-admin"
-else
-  echo "NOTE: Windows Instance FQDN:       $(echo $windows_dns | xargs)"
-fi
-
-# --- Linux AD (Samba Gateway) Instance ----------------------------------------
-# Retrieve the private DNS name of the EFS Samba gateway instance used for AD.
-linux_dns=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=efs-samba-gateway" \
-  --query 'Reservations[].Instances[].PrivateDnsName' \
-  --output text)
-
-if [ -z "$linux_dns" ]; then
-  echo "WARNING: No EFS Gateway instance found with tag Name=efs-samba-gateway"
-else
-  echo "NOTE: EFS Gateway Instance FQDN:   $(echo $linux_dns | xargs)"
-fi
-
-# ------------------------------------------------------------------------------
-# Step 1: Wait for Load Balancer Hostname Assignment
-# ------------------------------------------------------------------------------
-# Polls the RStudio Ingress until AWS assigns a Load Balancer hostname.
-# Once available, the hostname is exported as $LB_ADDRESS.
-# ------------------------------------------------------------------------------
-
-echo "NOTE: Waiting for Load Balancer address for Ingress: ${INGRESS_NAME}..."
-
-for ((i=1; i<=MAX_ATTEMPTS; i++)); do
-  LB_ADDRESS=$(kubectl get ingress ${INGRESS_NAME} \
-    --namespace ${NAMESPACE} \
-    --output jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
-
-  if [[ -n "$LB_ADDRESS" ]]; then
-    echo "NOTE: RStudio Ingress Load Balancer: $LB_ADDRESS"
-    export LB_ADDRESS
-    break
-  fi
-
-  echo "WARNING: Attempt $i/${MAX_ATTEMPTS}: Load Balancer not ready yet... retrying in ${SLEEP_SECONDS}s"
-  sleep ${SLEEP_SECONDS}
-done
-
-if [[ -z "$LB_ADDRESS" ]]; then
-  echo "ERROR: Timed out waiting for Load Balancer hostname."
+if [[ -z "${API_ID}" || "${API_ID}" == "None" ]]; then
+  echo "ERROR: No API found with name 'keygen-api'"
   exit 1
 fi
 
-# ------------------------------------------------------------------------------
-# Step 2: Wait for HTTP 200 Response from Load Balancer
-# ------------------------------------------------------------------------------
-# Once the hostname is available, continuously poll the endpoint until it
-# returns HTTP 200, indicating RStudio is reachable via the Load Balancer.
-# ------------------------------------------------------------------------------
+URL=$(aws apigatewayv2 get-api \
+  --api-id "${API_ID}" \
+  --query "ApiEndpoint" \
+  --output text)
 
-echo "NOTE: Waiting for Load Balancer endpoint (http://${LB_ADDRESS}) to return HTTP 200..."
+export API_BASE="${URL}"
+echo "NOTE: API Gateway URL - ${API_BASE}"
 
-for ((j=1; j<=MAX_ATTEMPTS; j++)); do
-  STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${LB_ADDRESS}/auth-sign-in")
+# -----------------------------------------------------------------------------------------------
+# Step 2: Submit SSH key generation request
+# -----------------------------------------------------------------------------------------------
+KEY_TYPE="${KEY_TYPE:-rsa}"
+KEY_BITS="${KEY_BITS:-2048}"
 
-  if [[ "$STATUS_CODE" == "200" ]]; then
-    echo "NOTE: RStudio available at: http://${LB_ADDRESS}"
+REQ_PAYLOAD=$(jq -n --arg kt "$KEY_TYPE" --arg kb "$KEY_BITS" \
+  '{ key_type: $kt, key_bits: ($kb | tonumber) }')
+
+echo "NOTE: Sending request - key_type=${KEY_TYPE}, key_bits=${KEY_BITS}"
+RESPONSE=$(curl -s -X POST "${API_BASE}/request" \
+  -H "Content-Type: application/json" \
+  -d "$REQ_PAYLOAD")
+
+REQUEST_ID=$(echo "$RESPONSE" | jq -r '.request_id // empty')
+
+if [[ -z "$REQUEST_ID" ]]; then
+  echo "ERROR: No request_id returned."
+  echo "NOTE: Response was: $RESPONSE"
+  exit 1
+fi
+
+echo "SUCCESS: Submitted keygen request ($REQUEST_ID)."
+echo "NOTE:Polling for result..."
+
+# -----------------------------------------------------------------------------------------------
+# Step 3: Poll result endpoint until response available
+# -----------------------------------------------------------------------------------------------
+MAX_ATTEMPTS=30
+SLEEP_SECONDS=2
+
+for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+  RESULT=$(curl -s "${API_BASE}/result/${REQUEST_ID}")
+  STATUS=$(echo "$RESULT" | jq -r '.status // empty')
+
+  if [[ "$STATUS" == "completed" ]]; then
+    echo "SUCCESS: Key generation complete."
+    echo "$RESULT" | jq
     exit 0
   fi
 
-  echo "WARNING: Attempt $j/${MAX_ATTEMPTS}: Current status: HTTP ${STATUS_CODE} ... retrying in ${SLEEP_SECONDS}s"
-  sleep ${SLEEP_SECONDS}
+  if [[ "$STATUS" == "error" ]]; then
+    echo "ERROR: Service reported an error."
+    echo "$RESULT" | jq
+    exit 1
+  fi
+
+  echo "WARNING: Attempt ${i}/${MAX_ATTEMPTS}: pending..."
+  sleep "$SLEEP_SECONDS"
 done
 
-echo "ERROR: Timed out after ${MAX_ATTEMPTS} attempts waiting for HTTP 200 from Load Balancer."
+echo "ERROR: Key generation did not complete after ${MAX_ATTEMPTS} attempts."
 exit 1
