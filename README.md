@@ -92,7 +92,7 @@ Retrieves the result of a previously submitted SSH key generation request.
 **Path Parameters:**
 | Parameter | Type | Description |
 |------------|------|-------------|
-| `request_id` | string | Unique ID returned by the `/request` call. |
+| `request_id` | string | Unique ID returned by the `/keygen` call. |
 
 **Example Request:**
 ```bash
@@ -158,7 +158,7 @@ flowchart TD
 * [Install Docker](https://docs.docker.com/engine/install)
 
 If this is your first time following along, we recommend starting with this video:  
-**[AWS + Terraform: Easy Setup](https://youtu.be/BCMQo0CB9wk)** – it walks through configuring your AWS credentials, Terraform backend, and CLI environment.
+**[AWS + Terraform: Easy Setup](https://www.youtube.com/watch?v=9clW3VQLyxA)** – it walks through configuring your AWS credentials, Terraform backend, and CLI environment.
 
 ## Download this Repository
 
