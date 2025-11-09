@@ -138,7 +138,7 @@ curl https://<api-id>.execute-api.us-east-1.amazonaws.com/result/630f70c4-815c-4
 
 ```mermaid
 flowchart TD
-    A["User or Web Client"] -->|"HTTPS POST /request"| B["API Gateway"]
+    A["User or Web Client"] -->|"HTTPS POST /keygen"| B["API Gateway"]
     B -->|"Invoke submit Lambda"| C["Lambda Submit Request"]
     C -->|"Enqueue message"| D["SQS Request Queue"]
     D -->|"Trigger processor"| E["Lambda KeyGen Processor"]
