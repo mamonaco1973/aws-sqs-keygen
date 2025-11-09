@@ -63,8 +63,8 @@ if [[ -z "$REQUEST_ID" ]]; then
   exit 1
 fi
 
-echo "SUCCESS: Submitted keygen request ($REQUEST_ID)."
-echo "NOTE:Polling for result..."
+echo "NOTE: Submitted keygen request ($REQUEST_ID)."
+echo "NOTE: Polling for result..."
 
 # -----------------------------------------------------------------------------------------------
 # Step 3: Poll result endpoint until response available
@@ -77,7 +77,7 @@ for ((i=1; i<=MAX_ATTEMPTS; i++)); do
   STATUS=$(echo "$RESULT" | jq -r '.status // empty')
 
   if [[ "$STATUS" == "complete" ]]; then
-    echo "SUCCESS: Key generation complete."
+    echo "NOTE: Key generation complete."
     echo "$RESULT" | jq
     exit 0
   fi
