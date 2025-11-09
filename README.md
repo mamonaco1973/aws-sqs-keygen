@@ -20,6 +20,102 @@ Together, these components form a **lightweight, fully serverless DevOps utility
 
 ![AWS KeyGen Diagram](aws-sqs-keygen.png)
 
+## API Gateway Endpoints
+
+The **KeyGen API** exposes two HTTP endpoints through **Amazon API Gateway (HTTP API)**, providing
+a simple request/response workflow for asynchronous SSH key generation.  
+All endpoints return structured JSON and are designed to integrate seamlessly with both CLI and
+browser-based clients.
+
+### POST /keygen
+
+**Purpose:**  
+Submits a new SSH key generation request to the service.  
+The request is placed on the SQS queue and processed asynchronously by the Lambda function.
+
+**Request Body (JSON):**
+```json
+{
+  "key_type": "rsa",
+  "key_bits": 2048
+}
+```
+
+**Parameters:**
+| Field | Type | Required | Description |
+|-------|------|-----------|-------------|
+| `key_type` | string | No | Type of key to generate (`rsa` or `ed25519`). Defaults to `rsa`. |
+| `key_bits` | integer | No | RSA key size (`2048` or `4096`). Ignored for Ed25519 keys. |
+
+**Example Request:**
+```bash
+curl -X POST https://<api-id>.execute-api.<region>.amazonaws.com/keygen   -H "Content-Type: application/json"   -d '{"key_type": "rsa", "key_bits": 2048}'
+```
+
+**Example Response:**
+```json
+{
+  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
+  "status": "submitted"
+}
+```
+
+**Behavior:**
+- The API immediately returns a unique `request_id` for correlation.  
+- The actual key generation occurs asynchronously in the Lambda worker.  
+- Clients must poll the `/result/{request_id}` endpoint to retrieve the final output.
+
+### GET /result/{request_id}
+
+**Purpose:**  
+Retrieves the result of a previously submitted SSH key generation request.
+
+**Path Parameters:**
+| Parameter | Type | Description |
+|------------|------|-------------|
+| `request_id` | string | Unique ID returned by the `/request` call. |
+
+**Example Request:**
+```bash
+curl https://<api-id>.execute-api.<region>.amazonaws.com/result/630f70c4-815c-41d1-ae52-6babf3a41b1f
+```
+
+**Example Response (Pending):**
+```json
+{
+  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
+  "status": "pending"
+}
+```
+
+**Example Response (Completed):**
+```json
+{
+  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
+  "status": "completed",
+  "key_type": "rsa",
+  "key_bits": 2048,
+  "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0t...",
+  "private_key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQo..."
+}
+```
+
+**Status Values:**
+| Status | Description |
+|---------|--------------|
+| `submitted` | Request accepted and queued for processing. |
+| `pending` | Request is being processed by the Lambda worker. |
+| `completed` | Key generation successful; keypair included in response. |
+| `error` | Request failed; additional error message provided. |
+
+---
+
+**Notes:**
+- Responses are served directly by Lambda via API Gateway, backed by DynamoDB or SQS polling.  
+- Keys are base64-encoded to ensure transport safety and can be decoded to PEM format for local use.  
+- No state is persisted beyond queue message lifetime, ensuring security and cost efficiency.
+
+
 ## Prerequisites
 
 * [An AWS Account](https://aws.amazon.com/console/)

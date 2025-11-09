@@ -51,7 +51,7 @@ REQ_PAYLOAD=$(jq -n --arg kt "$KEY_TYPE" --arg kb "$KEY_BITS" \
   '{ key_type: $kt, key_bits: ($kb | tonumber) }')
 
 echo "NOTE: Sending request - key_type=${KEY_TYPE}, key_bits=${KEY_BITS}"
-RESPONSE=$(curl -s -X POST "${API_BASE}/request" \
+RESPONSE=$(curl -s -X POST "${API_BASE}/keygen" \
   -H "Content-Type: application/json" \
   -d "$REQ_PAYLOAD")
 
