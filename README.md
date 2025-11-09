@@ -44,26 +44,26 @@ workflows, sandbox environments, or short-lived development accounts.
 ```mermaid
 flowchart TD
     %% ============================================================================================
-    %% AWS SSH KeyGen Microservice - High-Level Flow (GitHub-safe syntax)
+    %% AWS SSH KeyGen Microservice - High-Level Flow (Strict GitHub-Compatible)
     %% ============================================================================================
 
     %% CLIENT LAYER
-    A["User / Web Client"] -->|HTTPS POST /request| B["API Gateway"]
+    A["User or Web Client"] -->|"HTTPS POST to /request"| B["API Gateway"]
 
     %% REQUEST SUBMISSION
-    B -->|Invoke Lambda - Submit Request| C["Lambda - Submit Request"]
-    C -->|Enqueue Message| D["SQS Request Queue"]
+    B -->|"Invoke Lambda Submit Request"| C["Lambda Submit Request"]
+    C -->|"Enqueue Message"| D["SQS Request Queue"]
 
     %% PROCESSING LAYER
-    D -->|Trigger Event| E["Lambda - KeyGen Processor"]
-    E -->|Generate SSH Keypair (RSA/Ed25519)| E2["In-memory Key Generation"]
-    E2 -->|Store Result Record| F["DynamoDB Table"]
+    D -->|"Trigger Event"| E["Lambda KeyGen Processor"]
+    E -->|"Generate SSH Keypair RSA or Ed25519"| E2["In-memory Key Generation"]
+    E2 -->|"Store Result Record"| F["DynamoDB Table"]
 
     %% RESULT RETRIEVAL
-    A -->|HTTPS GET /result/{request_id}| G["API Gateway"]
-    G -->|Query Result| H["Lambda - Fetch Result"]
-    H -->|Read from DynamoDB| F
-    H -->|Return JSON Response| A
+    A -->|"HTTPS GET to /result request_id"| G["API Gateway"]
+    G -->|"Query Result"| H["Lambda Fetch Result"]
+    H -->|"Read from DynamoDB"| F
+    H -->|"Return JSON Response"| A
 
     %% ANNOTATIONS
     subgraph Notes["Key Points"]
@@ -76,6 +76,7 @@ flowchart TD
     classDef aws fill:#232F3E,stroke:#FF9900,stroke-width:2px,color:#ffffff
     class B,C,D,E,E2,F,G,H aws
 ```
+
 
 ## API Gateway Endpoints
 
