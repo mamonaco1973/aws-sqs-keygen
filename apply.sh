@@ -169,7 +169,7 @@ cd .. || exit
 # Optionally runs post-deployment validation once implemented.
 # --------------------------------------------------------------------------------
 echo "NOTE: Running build validation..."
-# ./validate.sh  # Uncomment once validation script is implemented
+./validate.sh
 
 # ================================================================================
 # END OF SCRIPT
