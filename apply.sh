@@ -97,7 +97,13 @@ if aws ecr describe-images \
 else
   echo "WARNING: Image not found in ECR. Building and pushing..."
 
-  DOCKER_BUILDKIT=0 docker build -t "${IMAGE_TAG}" . || {
+  docker buildx build \
+  	--platform linux/amd64 \
+  	--provenance=false \
+  	--sbom=false \
+  	--output type=docker \
+  	-t "${IMAGE_TAG}" . || 
+  {
     echo "ERROR: Docker build failed. Exiting."
     exit 1
   }
