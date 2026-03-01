@@ -119,7 +119,7 @@ echo "==========================================================================
 echo ""
 
 if [ -n "${website_url}" ] && [ "${website_url}" != "None" ]; then
-  echo "NOTE: Test Web UI URL: ${website_url}"
+  echo "NOTE: Test Web URL:    ${website_url}"
 else
   echo "WARN: Static website URL not found"
 fi
