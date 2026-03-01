@@ -100,7 +100,7 @@ for ((i=1; i<=MAX_ATTEMPTS; i++)); do
     exit 1
   fi
 
-  echo "WARNING: Attempt ${i}/${MAX_ATTEMPTS}: pending..."
+  echo "NOTE: Attempt ${i}/${MAX_ATTEMPTS}: pending..."
   sleep "${SLEEP_SECONDS}"
 
   if [[ "${i}" -eq "${MAX_ATTEMPTS}" ]]; then
