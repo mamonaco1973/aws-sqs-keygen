@@ -125,7 +125,7 @@ else
 fi
 
 if [ -n "${api_url}" ] && [ "${api_url}" != "None" ]; then
-  echo "NOTE: API Base URI:     ${api_url}"
+  echo "NOTE: API Base URI:    ${api_url}"
 else
   echo "WARN: API Gateway endpoint not found"
 fi
