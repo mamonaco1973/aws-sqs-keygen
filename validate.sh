@@ -1,96 +1,135 @@
 #!/bin/bash
-# ================================================================================================
-# File: validate.sh
-# ================================================================================================
+# ==============================================================================
+# validate.sh - KeyGen Quick Start Validation
+# ------------------------------------------------------------------------------
 # Purpose:
-#   End-to-end validation for the KeyGen microservice.
-#   - Discovers the deployed API Gateway endpoint automatically via AWS CLI.
-#   - Submits a key generation request to the Lambda-based API.
-#   - Parses the returned request_id.
-#   - Polls the result endpoint until the generated SSH keypair is ready.
+#   - Discover API Gateway endpoint via AWS CLI.
+#   - Retrieve static website URL from Terraform output.
+#   - Submit keygen request and validate async processing.
+#   - Print quick-start endpoints for testing.
+#
+# Fast-Fail Behavior:
+#   - Script exits immediately on command failure, unset variables,
+#     or failed pipelines.
 #
 # Requirements:
-#   - curl, jq, and AWS CLI installed and authenticated.
-#   - Terraform deployment of 'keygen-api' completed successfully.
-#   - Optional env vars:
-#       KEY_TYPE = rsa | ed25519            (default: rsa)
-#       KEY_BITS = 2048 | 4096 (RSA only)   (default: 2048)
-# ================================================================================================
+#   - curl, jq, Terraform, and AWS CLI installed and authenticated.
+#   - Terraform deployment completed successfully.
+# ==============================================================================
 set -euo pipefail
 export AWS_DEFAULT_REGION="us-east-1"
 
-# -----------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Step 0: Retrieve static website URL from Terraform
+# ------------------------------------------------------------------------------
+cd ./04-webapp || exit 1
+website_url="$(terraform output -raw website_https_url)"
+cd ..
+
+# ------------------------------------------------------------------------------
 # Step 1: Discover API Gateway endpoint
-# -----------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 echo "NOTE: Locating API Gateway endpoint..."
 
-API_ID=$(aws apigatewayv2 get-apis \
+api_id="$(aws apigatewayv2 get-apis \
   --query "Items[?Name=='keygen-api'].ApiId" \
-  --output text)
+  --output text)"
 
-if [[ -z "${API_ID}" || "${API_ID}" == "None" ]]; then
+if [[ -z "${api_id}" || "${api_id}" == "None" ]]; then
   echo "ERROR: No API found with name 'keygen-api'"
   exit 1
 fi
 
-URL=$(aws apigatewayv2 get-api \
-  --api-id "${API_ID}" \
+api_url="$(aws apigatewayv2 get-api \
+  --api-id "${api_id}" \
   --query "ApiEndpoint" \
-  --output text)
+  --output text)"
 
-export API_BASE="${URL}"
-echo "NOTE: API Gateway URL - ${API_BASE}"
+echo "NOTE: API Gateway URL - ${api_url}"
 
-# -----------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Step 2: Submit SSH key generation request
-# -----------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 KEY_TYPE="${KEY_TYPE:-rsa}"
 KEY_BITS="${KEY_BITS:-2048}"
 
-REQ_PAYLOAD=$(jq -n --arg kt "$KEY_TYPE" --arg kb "$KEY_BITS" \
-  '{ key_type: $kt, key_bits: ($kb | tonumber) }')
+req_payload="$(
+  jq -n \
+    --arg kt "${KEY_TYPE}" \
+    --arg kb "${KEY_BITS}" \
+    '{ key_type: $kt, key_bits: ($kb | tonumber) }'
+)"
 
 echo "NOTE: Sending request - key_type=${KEY_TYPE}, key_bits=${KEY_BITS}"
-RESPONSE=$(curl -s -X POST "${API_BASE}/keygen" \
-  -H "Content-Type: application/json" \
-  -d "$REQ_PAYLOAD")
 
-REQUEST_ID=$(echo "$RESPONSE" | jq -r '.request_id // empty')
+response="$(
+  curl -s -X POST "${api_url}/keygen" \
+    -H "Content-Type: application/json" \
+    -d "${req_payload}"
+)"
 
-if [[ -z "$REQUEST_ID" ]]; then
+request_id="$(echo "${response}" | jq -r '.request_id // empty')"
+
+if [[ -z "${request_id}" ]]; then
   echo "ERROR: No request_id returned."
-  echo "NOTE: Response was: $RESPONSE"
+  echo "NOTE: Response was: ${response}"
   exit 1
 fi
 
-echo "NOTE: Submitted keygen request ($REQUEST_ID)."
+echo "NOTE: Submitted keygen request (${request_id})."
 echo "NOTE: Polling for result..."
 
-# -----------------------------------------------------------------------------------------------
-# Step 3: Poll result endpoint until response available
-# -----------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Step 3: Poll result endpoint until complete
+# ------------------------------------------------------------------------------
 MAX_ATTEMPTS=30
 SLEEP_SECONDS=2
 
 for ((i=1; i<=MAX_ATTEMPTS; i++)); do
-  RESULT=$(curl -s "${API_BASE}/result/${REQUEST_ID}")
-  STATUS=$(echo "$RESULT" | jq -r '.status // empty')
+  result="$(curl -s "${api_url}/result/${request_id}")"
+  status="$(echo "${result}" | jq -r '.status // empty')"
 
-  if [[ "$STATUS" == "complete" ]]; then
+  if [[ "${status}" == "complete" ]]; then
     echo "NOTE: Key generation complete."
-    #echo "$RESULT" | jq
-    exit 0
+    break
   fi
 
-  if [[ "$STATUS" == "error" ]]; then
+  if [[ "${status}" == "error" ]]; then
     echo "ERROR: Service reported an error."
-    echo "$RESULT" | jq
+    echo "${result}" | jq
     exit 1
   fi
 
   echo "WARNING: Attempt ${i}/${MAX_ATTEMPTS}: pending..."
-  sleep "$SLEEP_SECONDS"
+  sleep "${SLEEP_SECONDS}"
+
+  if [[ "${i}" -eq "${MAX_ATTEMPTS}" ]]; then
+    echo "ERROR: Key generation did not complete."
+    exit 1
+  fi
 done
 
-echo "ERROR: Key generation did not complete after ${MAX_ATTEMPTS} attempts."
-exit 1
+# ------------------------------------------------------------------------------
+# Final Quick Start Output
+# ------------------------------------------------------------------------------
+echo ""
+echo "============================================================================"
+echo "KeyGen Quick Start - Validation Output"
+echo "============================================================================"
+echo ""
+
+if [ -n "${website_url}" ] && [ "${website_url}" != "None" ]; then
+  echo "NOTE: Test Web UI URL: ${website_url}"
+else
+  echo "WARN: Static website URL not found"
+fi
+
+if [ -n "${api_url}" ] && [ "${api_url}" != "None" ]; then
+  echo "NOTE: API Base URI:     ${api_url}"
+else
+  echo "WARN: API Gateway endpoint not found"
+fi
+
+echo ""
+echo "NOTE: Validation complete."
+echo ""
