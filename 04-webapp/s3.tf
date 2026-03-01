@@ -91,6 +91,21 @@ resource "aws_s3_object" "index_html" {
 }
 
 # --------------------------------------------------------------------------------
+# RESOURCE: aws_s3_object.favicon
+# --------------------------------------------------------------------------------
+# Description:
+#   Uploads the local favicon file to the S3 bucket 
+# --------------------------------------------------------------------------------
+resource "aws_s3_object" "favicon" {
+  bucket       = aws_s3_bucket.web_bucket.id
+  key          = "favicon.ico"
+  source       = "${path.module}/favicon.ico"
+  content_type = "image/x-icon"
+
+  depends_on = [aws_s3_bucket_policy.public_policy]
+}
+
+# --------------------------------------------------------------------------------
 # DATA: aws_region.current
 # --------------------------------------------------------------------------------
 # Description:
