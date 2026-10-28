@@ -1,153 +1,76 @@
-# AWS SSH KeyGen Microservice with SQS, Lambda, DynamoDB, and API Gateway
+# SSH Key Generator on AWS: API Gateway, SQS, Lambda and DynamoDB
 
-This project delivers a fully automated **serverless SSH key generation service**
-on AWS, powered by **Amazon Simple Queue Service (SQS)**, **AWS Lambda**,
-**Amazon DynamoDB**, and **API Gateway**.  
+An asynchronous **SSH key pair generator** with a browser front end. A
+client submits a request to an **API Gateway HTTP API**, a **Lambda**
+function puts it on an **SQS** queue and returns an ID, and a
+container-image worker Lambda generates the key pair and stores it in
+**DynamoDB**. The client polls a second endpoint until the result is ready.
+A single-page web app, served from a public **S3** bucket, does this from the
+browser.
 
-It uses **Terraform**, **Docker**, and **Python (boto3 + cryptography)** to build
-a **message-driven key generation pipeline** that asynchronously processes SSH
-keypair requests and stores completed results in DynamoDB — all without managing
-any EC2 instances.
+![KeyGen web app](webapp.png)
 
-For testing this service, a simple HTML frontend lets users trigger key generation requests directly from a browser using the deployed API endpoints.
+| Piece | Where | Role |
+|---|---|---|
+| **keygen-api** | API Gateway, us-east-1 | HTTP API, auto-deployed `$default` stage; `POST /keygen` and `GET /result/{id}`, each an `AWS_PROXY` integration; CORS allows any origin |
+| **keygen-post** | Lambda | Python 3.11; sends the request to the queue and returns `202` with a request ID |
+| **keygen_input** | SQS | standard queue; 60 s visibility timeout, 1 day retention, 10 s long polling |
+| **sqs-keygen-processor** | Lambda | container image from ECR, 512 MB, 60 s; triggered by the queue in batches of up to 10 |
+| **keygen_results** | DynamoDB | on-demand table keyed on `correlation_id`; items expire through a `ttl` attribute one day after they're written |
+| **keygen-get** | Lambda | Python 3.11; returns the result, or `202` `pending` until it exists |
+| **ssh-keygen** | ECR | the worker's image, tag `keygen-worker-rc1`, scanned on push |
+| **keygen-web-&lt;hex&gt;** | S3 | public-read bucket holding `index.html` and `favicon.ico` |
 
-![webapp](webapp.png)
+## Architecture
 
-This design uses a
-**stateless microservice** architecture where Lambda functions process queued
-requests on demand, write results to DynamoDB, and return responses via the API
-— ensuring zero idle cost and automatic scaling.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="architecture-dark.svg">
+  <img alt="A browser loads index.html from the public keygen-web S3 bucket and calls keygen-api, an API Gateway HTTP API. POST /keygen invokes the keygen-post Lambda, which puts the request on the keygen_input SQS queue and returns a request ID. The queue triggers sqs-keygen-processor, a container-image Lambda from the ssh-keygen ECR repository, in batches of ten; it generates the key pair and writes it to the keygen_results DynamoDB table with a one-day TTL. GET /result/{id} invokes keygen-get, which reads the item, or reports pending until it exists." src="architecture-light.svg">
+</picture>
 
-Key capabilities demonstrated:
+Regenerate with `python3 make_diagram.py`.
 
-1. **Serverless Key Generation Pipeline** – Implements a fully event-driven
-   workflow using SQS for inbound requests, Lambda for processing, and DynamoDB
-   for result storage.  
-2. **Asynchronous Processing** – Clients submit key generation jobs through an
-   API Gateway endpoint and poll for results via a unique `request_id`.  
-3. **Secure Key Management** – All private/public keypairs are generated
-   in-memory and stored only temporarily in DynamoDB, base64-encoded for safe
-   transport.  
-4. **Infrastructure as Code (IaC)** – Terraform modules provision SQS queues,
-   DynamoDB tables, ECR repositories, Lambda functions, API Gateway endpoints,
-   and S3 web hosting automatically.  
-5. **Static Web Client** – A simple HTML frontend hosted in S3 lets users trigger key generation requests directly from a browser using the deployed API endpoints.
+- **`01-sqs/`**: the queue and the ECR repository.
+- **`02-docker/ssh-keygen/`**: the worker (`app.py`, using `cryptography`)
+  and its `Dockerfile`, based on `public.ecr.aws/lambda/python:3.11`.
+- **`03-lambdas/`**: the API, the results table, the two API functions
+  (code in `code/post.py` and `code/get.py`), the worker function and its
+  SQS trigger. Each function has its own role: `keygen-post` can only send
+  to the queue, `keygen-get` can only read the table, and the worker can
+  receive from the queue and write to the table.
+- **`04-webapp/`**: the web bucket and `index.html.tmpl`, which `apply.sh`
+  fills in with the API URL.
 
-Together, these components form a **lightweight, fully serverless DevOps
-utility** for on-demand SSH key generation — ideal for integration with CI/CD
-workflows, sandbox environments, or short-lived development accounts.
+## API
 
-![AWS KeyGen Diagram](aws-sqs-keygen.png)
+There's no authentication.
 
-## API Gateway Endpoints
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/keygen` | `{"key_type": "rsa" \| "ed25519", "key_bits": 2048 \| 4096}`, both optional | `202` `{"request_id": "<uuid>", "status": "queued"}` |
+| GET | `/result/{id}` | none | `202` `{"status": "pending", "correlation_id": ...}` until the worker finishes, then `200` with the result |
 
-The **KeyGen API** exposes two HTTP endpoints through **Amazon API Gateway (HTTP API)**, providing
-a simple request/response workflow for asynchronous SSH key generation.  
-All endpoints return structured JSON and are designed to integrate seamlessly with both CLI and
-browser-based clients.
+The finished result is the DynamoDB item:
 
-### POST /keygen
-
-**Purpose:**  
-Submits a new SSH key generation request to the service.  
-The request is placed on the SQS queue and processed asynchronously by the Lambda function.
-
-**Request Body (JSON):**
 ```json
 {
-  "key_type": "rsa",
-  "key_bits": 2048
-}
-```
-
-**Parameters:**
-| Field | Type | Required | Description |
-|-------|------|-----------|-------------|
-| `key_type` | string | No | Type of key to generate (`rsa` or `ed25519`). Defaults to `rsa`. |
-| `key_bits` | integer | No | RSA key size (`2048` or `4096`). Ignored for Ed25519 keys. |
-
-**Example Request:**
-```bash
-curl -X POST https://<api-id>.execute-api.us-east-1.amazonaws.com/keygen   -H "Content-Type: application/json"   -d '{"key_type": "rsa", "key_bits": 2048}'
-```
-
-**Example Response:**
-```json
-{
-  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
-  "status": "submitted"
-}
-```
-
-**Behavior:**
-- The API immediately returns a unique `request_id` for correlation.  
-- The actual key generation occurs asynchronously in the Lambda worker.  
-- Clients must poll the `/result/{request_id}` endpoint to retrieve the final output.
-
-### GET /result/{request_id}
-
-**Purpose:**  
-Retrieves the result of a previously submitted SSH key generation request.
-
-**Path Parameters:**
-| Parameter | Type | Description |
-|------------|------|-------------|
-| `request_id` | string | Unique ID returned by the `/keygen` call. |
-
-**Example Request:**
-```bash
-curl https://<api-id>.execute-api.us-east-1.amazonaws.com/result/630f70c4-815c-41d1-ae52-6babf3a41b1f
-```
-
-**Example Response (Pending):**
-```json
-{
-  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
-  "status": "pending"
-}
-```
-
-**Example Response (Completed):**
-```json
-{
-  "request_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
+  "correlation_id": "630f70c4-815c-41d1-ae52-6babf3a41b1f",
   "status": "complete",
   "key_type": "rsa",
-  "key_bits": 2048,
-  "public_key_b64": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0t...",
-  "private_key_b64": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQo..."
+  "public_key_b64": "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCQVFD...",
+  "private_key_b64": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVB...",
+  "ttl": 1767225600
 }
 ```
 
-**Status Values:**
-| Status | Description |
-|---------|--------------|
-| `submitted` | Request accepted and queued for processing. |
-| `pending` | Request is being processed by the Lambda worker. |
-| `complete` | Key generation successful; keypair included in response. |
-| `error` | Request failed; additional error message provided. |
+Both keys are base64-encoded. Decoded, the public key is in OpenSSH format
+(`ssh-rsa ...` or `ssh-ed25519 ...`) and the private key is an unencrypted
+PEM: traditional RSA format for RSA, PKCS#8 for Ed25519. `key_bits` is
+ignored for Ed25519, and an unknown `key_type` falls back to RSA.
 
----
-
-**Notes:**
-- Responses are served directly by Lambda via API Gateway, backed by DynamoDB or SQS polling.  
-- Keys are base64-encoded to ensure transport safety and can be decoded to PEM format for local use.  
-- No state is persisted beyond queue message lifetime, ensuring security and cost efficiency.
-
-### Architecture Flow
-
-```mermaid
-flowchart TD
-    A["User or Web Client"] -->|"HTTPS POST /keygen"| B["API Gateway"]
-    B -->|"Invoke submit Lambda"| C["Lambda Submit Request"]
-    C -->|"Enqueue message"| D["SQS Request Queue"]
-    D -->|"Trigger processor"| E["Lambda KeyGen Processor"]
-    E -->|"Generate SSH keypair"| F["DynamoDB Results Table"]
-
-    A -->|"HTTPS GET /result/{request_id}"| G["API Gateway"]
-    G -->|"Invoke fetch Lambda"| H["Lambda Fetch Result"]
-    H -->|"Read by request_id"| F
-    H -->|"Return JSON response"| A
+```bash
+curl -s https://<api-id>.execute-api.us-east-1.amazonaws.com/result/<id> \
+  | jq -r .private_key_b64 | base64 -d > id_rsa && chmod 600 id_rsa
 ```
 
 ## Prerequisites
@@ -155,88 +78,74 @@ flowchart TD
 * [An AWS Account](https://aws.amazon.com/console/)
 * [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 * [Install Terraform](https://developer.hashicorp.com/terraform/install)
-* [Install Docker](https://docs.docker.com/engine/install)
+* [Install Docker](https://docs.docker.com/engine/install/) with `buildx`
+* [Install jq](https://jqlang.github.io/jq/download/) and `envsubst`
 
-If this is your first time following along, we recommend starting with this video:  
-**[AWS + Terraform: Easy Setup](https://www.youtube.com/watch?v=9clW3VQLyxA)** – it walks through configuring your AWS credentials, Terraform backend, and CLI environment.
+If this is your first time following along, we recommend starting with this
+video: [AWS + Terraform: Easy Setup](https://www.youtube.com/watch?v=9clW3VQLyxA).
 
-## Download this Repository
+## Deploy
 
 ```bash
 git clone https://github.com/mamonaco1973/aws-sqs-keygen.git
 cd aws-sqs-keygen
+./apply.sh
 ```
 
-## Build the Code
+Everything deploys to `us-east-1` in four phases:
 
-Run [check_env](check_env.sh) to validate your environment, then run [apply](apply.sh) to provision the infrastructure.
+1. **`01-sqs`** creates the queue and the ECR repository.
+2. `apply.sh` logs Docker in to ECR and, **only if the tag
+   `keygen-worker-rc1` isn't already there**, builds the worker image for
+   `linux/amd64` and pushes it.
+3. **`03-lambdas`** creates the API, the table and the three functions.
+4. `apply.sh` renders `04-webapp/index.html` with the API URL using
+   `envsubst`, and **`04-webapp`** uploads it.
+
+It ends by running `validate.sh`, which submits an RSA 2048 request and
+polls every 2 seconds, up to 30 times, until it's complete (set `KEY_TYPE`
+and `KEY_BITS` to try others):
+
+```
+NOTE: Submitted keygen request (630f70c4-815c-41d1-ae52-6babf3a41b1f).
+NOTE: Polling for result...
+NOTE: Attempt 1/30: pending...
+NOTE: Key generation complete.
+
+============================================================================
+KeyGen Quick Start - Validation Output
+============================================================================
+
+NOTE: Test Web URL:    https://keygen-web-<hex>.s3.us-east-1.amazonaws.com/index.html
+NOTE: API Base URI:    https://<api-id>.execute-api.us-east-1.amazonaws.com
+```
+
+## Try it
+
+1. Open the **Test Web URL**, pick a key type and size, and generate a key
+   pair; the page polls for the result and shows both keys.
+2. Or call the API with `curl` as above.
+
+## Teardown
 
 ```bash
-~/aws-sqs-keygen$ ./apply.sh
-NOTE: Running environment validation...
-NOTE: Validating that required commands are found in your PATH.
-NOTE: aws is found in the current PATH.
-NOTE: terraform is found in the current PATH.
-NOTE: docker is found in the current PATH.
-NOTE: jq is found in the current PATH.
-NOTE: All required commands are available.
-NOTE: Checking AWS cli connection.
-NOTE: Successfully logged into AWS.
-NOTE: Building Active Directory instance...
-Initializing the backend...
+./destroy.sh
 ```
 
-### Build Results
+`destroy.sh` destroys `04-webapp` and `03-lambdas`, force-deletes the ECR
+repository with its images, then destroys `01-sqs`.
 
-When the deployment completes, the following resources are created:
+## Notes
 
-- **Core Infrastructure:**  
-  - Fully serverless architecture—no EC2 instances or VPC networking required  
-  - Terraform-managed provisioning of SQS, Lambda, API Gateway, DynamoDB, ECR, and S3 resources  
-  - Event-driven message pipeline enabling asynchronous SSH key generation requests and result retrieval  
-
-- **Security & IAM:**  
-  - IAM roles for Lambda execution with scoped permissions for SQS, DynamoDB, CloudWatch, and Secrets Manager  
-  - Optional encryption of SQS queues and DynamoDB tables using AWS-managed KMS keys  
-  - Secure handling of generated SSH keys entirely in-memory—no local file storage or persistence  
-
-- **Amazon SQS Queue:**  
-  - Dedicated request queue (`keygen-request`) for incoming SSH key generation jobs  
-  - Receives messages from API Gateway or CLI clients, decoupling request submission from processing  
-  - Ensures durability and automatic retry handling for transient Lambda invocation failures  
-
-- **Amazon DynamoDB Table:**  
-  - Central result store keyed by unique `request_id`  
-  - Lambda writes key generation results to DynamoDB after successful processing  
-  - Each record includes metadata (status, key_type, key_bits) and base64-encoded keypair data  
-  - Configured with Time-to-Live (TTL) for automatic expiration and cost efficiency  
-
-- **AWS Lambda Function:**  
-  - Python-based Lambda built from a custom Docker image hosted in Amazon ECR  
-  - Asynchronously consumes requests from the SQS queue, generates SSH keypairs, and writes results to DynamoDB  
-  - Supports RSA-2048, RSA-4096, and Ed25519 key types configurable through API payload parameters  
-  - Emits structured logs and metrics to CloudWatch for observability and debugging  
-
-- **Amazon API Gateway:**  
-  - HTTP API exposing `/request` and `/result/{request_id}` endpoints  
-  - Integrates directly with Lambda functions to submit new jobs and query DynamoDB for completed results  
-  - Provides stateless, secure HTTPS access for browser clients or programmatic integrations  
-
-- **Amazon ECR:**  
-  - Private ECR repository (`ssh-keygen`) storing the Lambda container image  
-  - Automated vulnerability scanning enabled for enhanced security visibility  
-  - Acts as the Lambda image source during Terraform deployment  
-
-- **Static Web Application (S3):**  
-  - S3 bucket configured for static website hosting with public read access through a managed bucket policy  
-  - `index.html` provides a simple frontend allowing users to select key type and initiate generation requests  
-  - Dynamically calls the API Gateway endpoints published as Terraform outputs  
-
-- **Automation & Validation:**  
-  - `apply.sh`, `destroy.sh`, and `check_env.sh` scripts automate provisioning, teardown, and environment validation  
-  - `validate.sh` performs end-to-end verification by invoking the API, polling for results, and confirming DynamoDB output  
-  - Entire workflow runs with AWS credentials, Docker, Terraform, and jq—no manual resource setup required  
-
-Together, these resources form a **serverless, event-driven SSH KeyGen pipeline** that demonstrates modern AWS microservice design principles—scalable, cost-efficient, and fully managed from infrastructure to code.
-
-
+- **Lab only.** The API has no authentication and allows CORS from any
+  origin, and the generated private keys sit in DynamoDB until the TTL
+  removes them (DynamoDB deletes expired items within a few days, not at the
+  exact time). Anyone with a request ID can fetch its private key.
+- Because the image tag is fixed and step 2 skips the build when it exists,
+  changes to `app.py` aren't deployed until you delete the image or the
+  repository.
+- If the worker fails it only logs the error; it never writes an `error`
+  status, so `GET /result/{id}` keeps returning `pending`. The queue has no
+  dead-letter queue, and the handler catches every exception, so a failed
+  message isn't retried.
+- `check_env.sh` doesn't check for `envsubst`, which `apply.sh` needs.
