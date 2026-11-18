@@ -196,6 +196,7 @@ button {
   font-size: 0.8em;
   font-variant-numeric: tabular-nums;
 }
+.step .ms:empty { display: none; }
 
 .step[data-state="active"] {
   border-color: var(--gold);
@@ -369,7 +370,7 @@ tr.empty td { color: var(--muted); text-align: left; border: 0; }
 ----------------------------------------------------------------------------- -->
 <ol class="pipeline">
   <li class="step" id="step-submit"   data-state="idle"><span class="name">POST /keygen</span><span class="ms">—</span></li>
-  <li class="step" id="step-queued"   data-state="idle"><span class="name">Queued in SQS</span><span class="ms">—</span></li>
+  <li class="step" id="step-queued"   data-state="idle"><span class="name">Ticket</span><span class="ms">—</span></li>
   <li class="step" id="step-generate" data-state="idle"><span class="name">Lambda generating</span><span class="ms">—</span></li>
   <li class="step" id="step-ready"    data-state="idle"><span class="name">Ready</span><span class="ms">—</span></li>
 </ol>
@@ -558,6 +559,8 @@ $("generateBtn").onclick = async () => {
     run.enqueue = tQueued - t0;
     stopTicker();
     setStep("submit", "done", fmt(run.enqueue));
+    // Ticket chip: the first 8 characters of the request ID the API handed
+    // back. It is the claim check for this request, not a time.
     setStep("queued", "done", id.slice(0, 8));
     tickStep("generate", tQueued);
     console.log(`[timing] enqueue (POST /keygen 202): ` +
