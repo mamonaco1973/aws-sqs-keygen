@@ -87,6 +87,10 @@ resource "aws_s3_object" "index_html" {
   source       = "${path.module}/index.html"
   content_type = "text/html"
 
+  # Without a hash Terraform only sees the path, so a regenerated file is
+  # never re-uploaded.
+  source_hash = filemd5("${path.module}/index.html")
+
   depends_on = [aws_s3_bucket_policy.public_policy]
 }
 
@@ -101,6 +105,10 @@ resource "aws_s3_object" "favicon" {
   key          = "favicon.ico"
   source       = "${path.module}/favicon.ico"
   content_type = "image/x-icon"
+
+  # Without a hash Terraform only sees the path, so a regenerated file is
+  # never re-uploaded.
+  source_hash = filemd5("${path.module}/favicon.ico")
 
   depends_on = [aws_s3_bucket_policy.public_policy]
 }
@@ -125,6 +133,6 @@ output "website_https_url" {
   value = format(
     "https://%s.s3.%s.amazonaws.com/index.html",
     aws_s3_bucket.web_bucket.bucket,
-    data.aws_region.current.id,
+    data.aws_region.current.region,
   )
 }

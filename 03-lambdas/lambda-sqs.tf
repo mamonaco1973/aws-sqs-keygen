@@ -102,7 +102,7 @@ resource "aws_lambda_function" "sqs_keygen_lambda" {
   function_name = "sqs-keygen-processor"
   role          = aws_iam_role.lambda_exec_role.arn
   package_type  = "Image"
-  image_uri     = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.id}.amazonaws.com/ssh-keygen:keygen-worker-rc1"
+  image_uri     = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/ssh-keygen:keygen-worker-rc1"
   timeout       = 60
   memory_size   = 512
 

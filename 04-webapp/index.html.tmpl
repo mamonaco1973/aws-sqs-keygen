@@ -1,123 +1,625 @@
 <!-- =============================================================================
  index.html
- Simple client for AWS Keygen API
+ Client for the AWS Keygen API.
+
+ Layout note: on desktop the page is a full-height flex column and NEVER
+ scrolls itself. The key panels and run history flex to fill whatever space
+ is left and scroll internally, so a 50-line RSA-4096 private key and a
+ 3-line Ed25519 key both sit in the same frame with no layout shift between
+ runs. Below 900px wide the page scrolls normally and the boxes get fixed
+ heights, because a phone has no room to share between them.
 ============================================================================= -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="dark" />
 <title>Key Generator</title>
 <style>
-body { font-family: sans-serif; max-width: 700px; margin: 2em auto; }
-label { display: block; margin-top: 1em; }
-button { margin-top: 1em; padding: 0.5em 1em; }
+/* ---------------------------------------------------------------------------
+   Palette — matches the video's title cards so a cut from the app to a slide
+   is a tonal match rather than a white-to-black flash. Green and red are
+   only used for pipeline step state.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg:     #0A0E14;
+  --panel:  #121A24;
+  --border: #223142;
+  --text:   #E6EDF3;
+  --muted:  #8FA0B4;
+  --gold:   #F5B700;
+  --ok:     #3FB950;
+  --err:    #FF7B72;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+/* Flex and grid items will not shrink below their min-content width unless
+   told to, which is how a long unbroken key string turns into sideways
+   scroll. */
+body > *, .controls > *, .panel > *, .main > *, .keys > * { min-width: 0; }
+
+/* Type scales with the viewport: sized to stay legible when a 1080p screen
+   recording is watched full-frame on a phone, not for phone browsing. */
+body {
+  margin: 0;
+  padding: clamp(14px, 2.5vw, 28px);
+  /* Fixed height + hidden overflow, NOT min-height: min-height lets the body
+     grow past the viewport and the page scrolls again. */
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.6vh, 18px);
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: clamp(16px, 1.15vw, 21px);
+  line-height: 1.4;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.6vw, 2.3rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------------------
+   Controls: key type as a segmented control (three tap targets beat a
+   dropdown on a phone) and the Generate button, all on one row.
+   --------------------------------------------------------------------------- */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(10px, 1.5vw, 16px);
+}
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 0.55em 0.9em;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.seg button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-checked="true"] { background: var(--border); color: var(--text); }
+.seg button:disabled { cursor: default; }
+
+#generateBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #10131A;
+  font-weight: 700;
+  cursor: pointer;
+}
+#generateBtn:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Busy state: one request at a time. The spinner only shows while busy. */
+#generateBtn:disabled { opacity: 0.75; cursor: progress; }
+.spinner {
+  display: none;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+#generateBtn.busy .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------------------------------------------------------------------------
+   Status: the elapsed time is the hero of the shot — oversized and gold so it
+   reads at phone scale. The breakdown underneath splits it into the time to
+   enqueue and the time spent waiting on SQS + Lambda. min-height reserves
+   both lines so nothing jumps when they fill.
+   --------------------------------------------------------------------------- */
+.status-block { display: flex; flex-direction: column; gap: 2px; }
+
+#status {
+  min-height: 1.5em;
+  font-size: clamp(1.15rem, 1.9vw, 1.7rem);
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+#breakdown {
+  min-height: 1.4em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   Pipeline strip: one chip per stage of the async request. Each chip is
+   idle, active (gold, pulsing) or done (green) and shows its own time, so the
+   queue hand-off is visible on camera instead of being a pause.
+   --------------------------------------------------------------------------- */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(8px, 1.2vw, 14px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  position: relative;
+  padding: 0.55em 0.8em;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  transition: border-color 0.2s, color 0.2s;
+}
+
+/* Arrow between chips, drawn in the gap. */
+.step + .step::before {
+  content: "›";
+  position: absolute;
+  left: calc(-0.5 * clamp(8px, 1.2vw, 14px) - 0.3em);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--border);
+  font-weight: 700;
+}
+
+.step .name { display: block; font-weight: 600; font-size: 0.85em; }
+.step .ms {
+  display: block;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+
+.step[data-state="active"] {
+  border-color: var(--gold);
+  color: var(--gold);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.step[data-state="done"]  { border-color: var(--ok);  color: var(--ok); }
+.step[data-state="error"] { border-color: var(--err); color: var(--err); }
+
+@keyframes pulse {
+  50% { box-shadow: 0 0 0 3px rgba(245, 183, 0, 0.18); }
+}
+
+/* ---------------------------------------------------------------------------
+   Main area: keys on the left, run history on the right.
+   --------------------------------------------------------------------------- */
+.main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: clamp(10px, 1.6vw, 20px);
+}
+
+.keys {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: clamp(10px, 1.6vh, 18px);
+}
+
+/* Public key gets 1 share of the height, private key 3 — a wrapped RSA-4096
+   public key needs about four lines, the matching private key about fifty. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+.panel.pub  { flex: 1 1 0; }
+.panel.priv { flex: 3 1 0; }
+.panel.hist { min-height: 0; }
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: clamp(0.95rem, 1.2vw, 1.15rem);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.copy-btn {
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.3em 0.7em;
+  font-size: 0.8em;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--muted); }
+
 textarea {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  font-family: monospace;
+  resize: none;               /* the layout sizes these, not the user */
+  overflow: auto;
+  padding: clamp(10px, 1.2vw, 16px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: clamp(0.8rem, 0.95vw, 1rem);
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-all;
-  background: #f5f5f5;
-  padding: 1em;
-  box-sizing: border-box;
 }
-#status { margin-top: 1em; font-weight: bold; }
-.copy-btn {
-  margin-top: 0.5em;
-  padding: 0.4em 0.8em;
-  font-size: 0.9em;
+
+textarea:focus { outline: 1px solid var(--gold); }
+
+/* ---------------------------------------------------------------------------
+   Run history: newest first. The first run after a deploy pays the Lambda
+   cold start; later runs show the warm path. Side by side, that contrast is
+   the point of keeping a history at all.
+   --------------------------------------------------------------------------- */
+.hist-box {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+th, td {
+  padding: 0.45em 0.7em;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+th:first-child, td:first-child,
+th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+td.total { color: var(--gold); font-weight: 700; }
+td.note  { color: var(--muted); font-size: 0.9em; }
+tr.empty td { color: var(--muted); text-align: left; border: 0; }
+
+/* ---------------------------------------------------------------------------
+   Narrow screens: let the page scroll and give each box a fixed height,
+   history below the keys, chips two by two.
+   --------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  body { height: auto; min-height: 100dvh; overflow: auto; }
+  .main { flex: none; grid-template-columns: 1fr; }
+  /* The panels' flex shares divide a fixed height that no longer exists;
+     with a zero basis they would collapse to nothing. */
+  .panel.pub, .panel.priv, .panel.hist { flex: none; }
+  .panel.pub textarea  { flex: none; height: 7.5em; }
+  .panel.priv textarea { flex: none; height: 20em; }
+  .hist-box { flex: none; max-height: 16em; }
+}
+
+@media (max-width: 560px) {
+  .controls { flex-direction: column; align-items: stretch; }
+  .seg { display: flex; }
+  .seg button { flex: 1 1 0; padding: 0.7em 0.4em; }
+  #generateBtn { justify-content: center; padding: 0.75em; }
+  .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .step:nth-child(3)::before { content: none; }
 }
 </style>
 </head>
 <body>
-<h2>Generate SSH Keypair</h2>
 
-<label>
-  Select key type:
-  <select id="keyType">
-    <option value="rsa-2048">RSA 2048-bit</option>
-    <option value="rsa-4096">RSA 4096-bit</option>
-    <option value="ed25519">Ed25519</option>
-  </select>
-</label>
+<h1>Generate SSH Keypair</h1>
 
-<button id="generateBtn">Generate Keypair</button>
+<div class="controls">
+  <div class="seg" role="radiogroup" aria-label="Key type">
+    <button type="button" role="radio" aria-checked="true"  data-key="rsa-2048">RSA 2048</button>
+    <button type="button" role="radio" aria-checked="false" data-key="rsa-4096">RSA 4096</button>
+    <button type="button" role="radio" aria-checked="false" data-key="ed25519">Ed25519</button>
+  </div>
+  <button id="generateBtn" type="button">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="generateLabel">Generate Keypair</span>
+  </button>
+</div>
 
-<div id="status"></div>
-
-<!-- -----------------------------------------------------------------------------
- Public Key Section
------------------------------------------------------------------------------ -->
-<h3>Public Key</h3>
-<textarea id="pubKey" rows="3" readonly></textarea>
-<button class="copy-btn"
-  onclick="navigator.clipboard.writeText(document.getElementById('pubKey').value)">
-  Copy Public Key
-</button>
+<div class="status-block">
+  <div id="status" aria-live="polite"></div>
+  <div id="breakdown"></div>
+</div>
 
 <!-- -----------------------------------------------------------------------------
- Private Key Section
+ Pipeline: one chip per stage of the request
 ----------------------------------------------------------------------------- -->
-<h3>Private Key</h3>
-<textarea id="privKey" rows="15" readonly></textarea>
-<button class="copy-btn"
-  onclick="navigator.clipboard.writeText(document.getElementById('privKey').value)">
-  Copy Private Key
-</button>
+<ol class="pipeline">
+  <li class="step" id="step-submit"   data-state="idle"><span class="name">POST /keygen</span><span class="ms">—</span></li>
+  <li class="step" id="step-queued"   data-state="idle"><span class="name">Queued in SQS</span><span class="ms">—</span></li>
+  <li class="step" id="step-generate" data-state="idle"><span class="name">Lambda generating</span><span class="ms">—</span></li>
+  <li class="step" id="step-ready"    data-state="idle"><span class="name">Ready</span><span class="ms">—</span></li>
+</ol>
+
+<div class="main">
+  <div class="keys">
+    <!-- -------------------------------------------------------------------------
+     Public Key Section
+    ------------------------------------------------------------------------- -->
+    <section class="panel pub">
+      <div class="panel-head">
+        <h2>Public Key</h2>
+        <button class="copy-btn" type="button"
+          onclick="navigator.clipboard.writeText(document.getElementById('pubKey').value)">
+          Copy
+        </button>
+      </div>
+      <textarea id="pubKey" readonly></textarea>
+    </section>
+
+    <!-- -------------------------------------------------------------------------
+     Private Key Section
+    ------------------------------------------------------------------------- -->
+    <section class="panel priv">
+      <div class="panel-head">
+        <h2>Private Key</h2>
+        <button class="copy-btn" type="button"
+          onclick="navigator.clipboard.writeText(document.getElementById('privKey').value)">
+          Copy
+        </button>
+      </div>
+      <textarea id="privKey" readonly></textarea>
+    </section>
+  </div>
+
+  <!-- ---------------------------------------------------------------------------
+   Run History Section
+  --------------------------------------------------------------------------- -->
+  <section class="panel hist">
+    <div class="panel-head">
+      <h2>Run History</h2>
+    </div>
+    <div class="hist-box">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Key</th><th>Enqueue</th><th>Wait</th><th>Total</th></tr>
+        </thead>
+        <tbody id="history">
+          <tr class="empty"><td colspan="5">No runs yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
 
 <script>
 // -----------------------------------------------------------------------------
-// Utility: sleep
+// Utilities
 // -----------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmt = ms => (ms < 1000 ? `${ms.toFixed(0)} ms` : `${(ms / 1000).toFixed(2)} s`);
+
+const KEY_LABELS = { "rsa-2048": "RSA 2048", "rsa-4096": "RSA 4096", "ed25519": "Ed25519" };
+
+// -----------------------------------------------------------------------------
+// Poll schedule
+// -----------------------------------------------------------------------------
+// The first read fires immediately and early retries are 250ms apart: a warm
+// SQS-triggered Lambda often finishes before a slower tick could observe it,
+// and a fixed delay would report latency the backend never actually had.
+// Intervals widen after 3s so a cold start doesn't hammer the API.
+//
+// The deadline covers a cold start of the container-image keygen Lambda
+// with plenty of margin; its own timeout is 60s.
+// -----------------------------------------------------------------------------
+const POLL_DEADLINE_MS = 90000;
+const pollDelay = elapsed => (elapsed < 3000 ? 250 : 1000);
+
+// -----------------------------------------------------------------------------
+// Key type: segmented control
+// -----------------------------------------------------------------------------
+let keyChoice = "rsa-2048";
+const segButtons = document.querySelectorAll(".seg button");
+
+segButtons.forEach(btn => {
+  btn.onclick = () => {
+    keyChoice = btn.dataset.key;
+    segButtons.forEach(b => b.setAttribute("aria-checked", String(b === btn)));
+  };
+});
+
+// -----------------------------------------------------------------------------
+// Pipeline chips
+// -----------------------------------------------------------------------------
+const STEPS = ["submit", "queued", "generate", "ready"];
+
+function setStep(name, state, text) {
+  const el = $(`step-${name}`);
+  el.dataset.state = state;
+  if (text !== undefined) el.querySelector(".ms").textContent = text;
+}
+
+function resetSteps() {
+  STEPS.forEach(s => setStep(s, "idle", "—"));
+}
+
+// The active chip counts up live so the wait is visible, not just its result.
+let ticker = null;
+function tickStep(name, since) {
+  stopTicker();
+  ticker = setInterval(() => setStep(name, "active", fmt(performance.now() - since)), 100);
+}
+function stopTicker() {
+  if (ticker) { clearInterval(ticker); ticker = null; }
+}
+
+// -----------------------------------------------------------------------------
+// Busy state: one request at a time
+// -----------------------------------------------------------------------------
+function setBusy(busy) {
+  $("generateBtn").disabled = busy;
+  $("generateBtn").classList.toggle("busy", busy);
+  $("generateLabel").textContent = busy ? "Generating…" : "Generate Keypair";
+  segButtons.forEach(b => { b.disabled = busy; });
+}
+
+// -----------------------------------------------------------------------------
+// Run history, newest first, last 10 runs
+// -----------------------------------------------------------------------------
+const runs = [];
+let runNumber = 0;
+
+function addHistory(run) {
+  runs.unshift(run);
+  runs.length = Math.min(runs.length, 10);
+
+  $("history").innerHTML = runs.map(r => `
+    <tr>
+      <td>${r.n}</td>
+      <td>${KEY_LABELS[r.key]}</td>
+      <td>${r.ok ? fmt(r.enqueue) : "—"}</td>
+      <td>${r.ok ? fmt(r.wait) : "—"}</td>
+      <td class="total">${r.ok ? fmt(r.total) : r.error}</td>
+    </tr>`).join("");
+}
 
 // -----------------------------------------------------------------------------
 // Generate Keypair handler
 // -----------------------------------------------------------------------------
-document.getElementById("generateBtn").onclick = async () => {
-  const sel = document.getElementById("keyType").value;
-  const [type, bits] = sel.split("-");
-  document.getElementById("status").textContent = "Requesting keypair...";
+$("generateBtn").onclick = async () => {
+  const key = keyChoice;
+  const [type, bits] = key.split("-");
+  const run = { n: ++runNumber, key, ok: false };
+
+  setBusy(true);
+  resetSteps();
+  $("status").textContent = "Requesting keypair...";
+  $("breakdown").textContent = "";
+
+  // Clear the previous run's keys before waiting.  Leaving them on screen
+  // makes a pending request look already-complete — misleading in the UI and
+  // actively wrong on camera, where the fill-in is the visible proof of work.
+  $("pubKey").value = "";
+  $("privKey").value = "";
+
+  // Clock starts at the click, not at the fetch — this measures what the user
+  // actually waits for: API Gateway, SQS, the keygen Lambda and DynamoDB.
+  const t0 = performance.now();
+  tickStep("submit", t0);
 
   try {
     // -----------------------------------------------------------
-    // Step 1: POST /keygen
+    // Step 1: POST /keygen — the request is accepted and queued
     // -----------------------------------------------------------
     const resp = await fetch(`${API_BASE}/keygen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key_type: type, key_bits: Number(bits) })
     });
+    if (!resp.ok) throw new Error(`POST /keygen returned ${resp.status}`);
     const data = await resp.json();
     const id = data.request_id;
-    document.getElementById("status").textContent =
-      `Request ID: ${id} (waiting...)`;
+
+    const tQueued = performance.now();
+    run.enqueue = tQueued - t0;
+    stopTicker();
+    setStep("submit", "done", fmt(run.enqueue));
+    setStep("queued", "done", id.slice(0, 8));
+    tickStep("generate", tQueued);
+    console.log(`[timing] enqueue (POST /keygen 202): ` +
+                `${run.enqueue.toFixed(0)}ms — id ${id}`);
+
+    $("status").textContent = `Request ID: ${id} (waiting...)`;
 
     // -----------------------------------------------------------
     // Step 2: Poll /result/{id}
     // -----------------------------------------------------------
-    let ready = false, result;
-    for (let i = 0; i < 20; i++) {
-      await sleep(1500);
+    let ready = false, result, polls = 0;
+    const deadline = t0 + POLL_DEADLINE_MS;
+
+    while (performance.now() < deadline) {
       const res = await fetch(`${API_BASE}/result/${id}`);
       result = await res.json();
+      polls++;
       if (result.status !== "pending") { ready = true; break; }
+      await sleep(pollDelay(performance.now() - t0));
     }
+    stopTicker();
 
     // -----------------------------------------------------------
     // Step 3: Display results
     // -----------------------------------------------------------
+    const total = performance.now() - t0;
+
     if (ready) {
-      document.getElementById("status").textContent = "Keypair ready!";
-      document.getElementById("pubKey").value = atob(result.public_key_b64);
-      document.getElementById("privKey").value = atob(result.private_key_b64);
+      // The wait is quantised by the poll interval, so it is an upper bound:
+      // the worker finished somewhere inside the last poll gap.
+      run.ok = true;
+      run.wait = total - run.enqueue;
+      run.total = total;
+      console.log(`[timing] key received: ${total.toFixed(0)}ms total ` +
+                  `(${polls} poll${polls === 1 ? "" : "s"})`);
+
+      setStep("generate", "done", fmt(run.wait));
+      setStep("ready", "done", fmt(total));
+      $("status").textContent = `Keypair ready in ${(total / 1000).toFixed(2)}s`;
+      $("breakdown").textContent =
+        `enqueue ${fmt(run.enqueue)} · wait ${fmt(run.wait)} · ` +
+        `${polls} poll${polls === 1 ? "" : "s"}`;
+      $("pubKey").value = atob(result.public_key_b64);
+      $("privKey").value = atob(result.private_key_b64);
     } else {
-      document.getElementById("status").textContent =
-        "Timed out waiting for result.";
+      console.log(`[timing] TIMED OUT after ${total.toFixed(0)}ms (${polls} polls)`);
+      run.error = "timed out";
+      setStep("generate", "error", "timed out");
+      $("status").textContent = `Timed out after ${(total / 1000).toFixed(0)}s.`;
     }
   } catch (err) {
-    document.getElementById("status").textContent =
-      "Error: " + err.message;
+    stopTicker();
+    console.log(`[timing] failed after ` +
+                `${(performance.now() - t0).toFixed(0)}ms: ${err.message}`);
+    run.error = "error";
+    STEPS.forEach(s => {
+      if ($(`step-${s}`).dataset.state === "active") setStep(s, "error", "failed");
+    });
+    $("status").textContent = "Error: " + err.message;
+  } finally {
+    addHistory(run);
+    setBusy(false);
   }
 };
 </script>

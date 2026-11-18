@@ -25,6 +25,19 @@ else
   exit 1
 fi
 
+# apply.sh builds the image with "docker buildx build". buildx is a Docker
+# CLI plugin, not a command on PATH, and Ubuntu's docker.io package does not
+# pull it in (it ships separately as docker-buildx).
+echo "NOTE: Checking for the docker buildx plugin."
+
+if ! docker buildx version &> /dev/null; then
+  echo "ERROR: docker buildx is not installed."
+  echo "       On Ubuntu: sudo apt install -y docker-buildx"
+  exit 1
+else
+  echo "NOTE: docker buildx is available."
+fi
+
 echo "NOTE: Checking AWS cli connection."
 
 aws sts get-caller-identity --query "Account" --output text >> /dev/null
